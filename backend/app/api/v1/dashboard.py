@@ -11,6 +11,7 @@ from app.auth.deps import require
 from app.auth.scope import website_scope_clause
 from app.db import get_db
 from app.models import UptimeCheck, UptimeIncident, User, Website
+from app.monitoring.stats import aggregate, uptime_for_sites
 from app.schemas.websites import WebsiteClientView, WebsiteStaffView
 from app.services import website_service as svc
 
@@ -30,6 +31,7 @@ class DashboardSummary(BaseModel):
     monthly_uptime_note: str
     active_incidents: int
     websites: list[WebsiteStaffView | WebsiteClientView]
+    uptime_30d: dict[str, float | None]
 
 
 @router.get("/summary", response_model=DashboardSummary)
@@ -57,6 +59,8 @@ def summary(db: Session = Depends(get_db), user: User = Depends(require("website
         open_incidents = db.scalar(select(func.count()).select_from(UptimeIncident).where(
             UptimeIncident.website_id.in_(ids), UptimeIncident.ended_at.is_(None))) or 0
 
+    now = datetime.now(UTC)
+    month = uptime_for_sites(db, ids, now - timedelta(days=30), now)
     return DashboardSummary(
         total_websites=len(sites),
         online=count("up"),
@@ -66,10 +70,10 @@ def summary(db: Session = Depends(get_db), user: User = Depends(require("website
         paused=sum(1 for s in sites if s.status == "paused"),
         avg_response_ms_24h=round(avg_ms) if avg_ms is not None else None,
         checks_24h=n_checks or 0,
-        # Uptime % is calculated by the monitoring service (phase 3). Until checks exist we
-        # report no value rather than assuming 100 %.
-        monthly_uptime_pct=None,
-        monthly_uptime_note="Uptime history not yet available",
+        monthly_uptime_pct=aggregate(list(month.values())),
+        monthly_uptime_note=("Last 30 days, all websites combined" if aggregate(list(month.values())) is not None
+                             else "No uptime history yet"),
         active_incidents=open_incidents,
         websites=[svc.to_view(s, user) for s in sites],
+        uptime_30d={str(k): v.uptime_pct for k, v in month.items()},
     )

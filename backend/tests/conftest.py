@@ -10,6 +10,9 @@ os.environ["DATABASE_URL"] = os.environ.get(
 os.environ["REDIS_URL"] = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
 os.environ["COOKIE_SECURE"] = "false"  # TestClient talks plain http
 os.environ["ENV"] = "test"
+os.environ["CELERY_EAGER"] = "true"
+os.environ["NOTIFIER_BACKEND"] = "memory"
+os.environ["SMTP_HOST"] = ""
 
 import uuid  # noqa: E402
 
@@ -48,6 +51,10 @@ def clean_state():
         if wipe:
             conn.execute(text("TRUNCATE " + ", ".join(f'"{t}"' for t in wipe) + " RESTART IDENTITY CASCADE"))
     get_redis().flushdb()
+    from app.notify.senders import MemoryNotifier
+
+    MemoryNotifier.outbox.clear()
+    MemoryNotifier.fail_next = 0
     yield
 
 
@@ -80,8 +87,9 @@ def make_client(db):
 
 @pytest.fixture
 def make_website(db):
-    def _make(client: Client, name: str = "Site", url: str = "https://example.com", assign=()) -> Website:
-        w = Website(client_id=client.id, name=name, base_url=url, hostname=url.split("//")[1].split("/")[0])
+    def _make(client: Client, name: str = "Site", url: str = "https://example.com", assign=(), **kw) -> Website:
+        w = Website(client_id=client.id, name=name, base_url=url, hostname=url.split("//")[1].split("/")[0].split(":")[0],
+                    **kw)
         w.assigned_users = list(assign)
         db.add(w)
         db.commit()

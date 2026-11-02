@@ -43,7 +43,7 @@ class UptimeIncident(UUIDPk, Timestamps, Base):
         ),
     )
     website_id: Mapped[uuid.UUID] = mapped_column(fk("websites.id"), index=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_s: Mapped[int | None]
     status: Mapped[str] = mapped_column(str_enum(*INCIDENT_STATUS, name="incident_status"), default="open")

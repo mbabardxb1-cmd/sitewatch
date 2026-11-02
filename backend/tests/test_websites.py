@@ -264,7 +264,6 @@ def test_dashboard_summary_counts_and_no_fabricated_values(as_user, make_client,
     assert (s["total_websites"], s["online"], s["offline"], s["degraded"], s["unknown"], s["paused"]) == (4, 1, 1, 1, 0, 1)
     assert s["avg_response_ms_24h"] == 200 and s["checks_24h"] == 2
     assert s["active_incidents"] == 1
-    assert s["monthly_uptime_pct"] is None
     health = {w["name"]: w["health"] for w in s["websites"]}
     assert health == {"Up": "healthy", "Down": "critical", "Slow": "warning", "Paused": "unknown"}
 

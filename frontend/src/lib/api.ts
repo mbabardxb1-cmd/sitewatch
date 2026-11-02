@@ -150,3 +150,115 @@ export type DashboardSummary = {
 export function fmtDate(v: string | null | undefined, empty = "Never"): string {
   return v ? new Date(v).toLocaleString() : empty;
 }
+
+export type UptimePeriod = {
+  period_start: string;
+  period_end: string;
+  uptime_pct: number | null;
+  monitored_s: number;
+  downtime_s: number;
+  unknown_s: number;
+  coverage_pct: number;
+  checks: number;
+  incidents: number;
+};
+
+export type UptimeSummary = {
+  website_id: string;
+  day: UptimePeriod;
+  week: UptimePeriod;
+  month: UptimePeriod;
+  calendar_month: UptimePeriod;
+  method: string;
+};
+
+export type UptimeOverviewRow = {
+  website_id: string;
+  day: number | null;
+  week: number | null;
+  month: number | null;
+  month_coverage_pct: number;
+  avg_response_ms_24h: number | null;
+};
+
+export type ResponseBucket = {
+  bucket: string;
+  checks: number;
+  successes: number;
+  avg_ms: number | null;
+  p95_ms: number | null;
+  max_ms: number | null;
+};
+
+export type UptimeCheck = {
+  id: number;
+  checked_at: string;
+  ok: boolean;
+  degraded: boolean;
+  http_status: number | null;
+  response_ms: number | null;
+  error_type: string | null;
+  error_detail: string | null;
+  final_url: string | null;
+  attempt: number;
+  is_retry: boolean;
+  is_manual: boolean;
+};
+
+export type Incident = {
+  id: string;
+  website_id: string;
+  website_name: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_s: number | null;
+  status: "open" | "acknowledged" | "resolved";
+  // staff only
+  cause_summary?: string;
+  acknowledged_by_email?: string | null;
+  acknowledged_at?: string | null;
+};
+
+export type NotificationRule = {
+  id: string;
+  event_type: string;
+  website_id: string | null;
+  client_id: string | null;
+  enabled: boolean;
+  recipients: string[];
+  thresholds: Record<string, unknown>;
+  min_interval_s: number;
+  created_at: string;
+};
+
+export type NotificationLogRow = {
+  id: number;
+  website_id: string | null;
+  event_type: string;
+  channel: string;
+  recipients: string[];
+  subject: string | null;
+  status: "pending" | "sent" | "failed" | "suppressed";
+  error: string | null;
+  created_at: string;
+  sent_at: string | null;
+};
+
+export function fmtPct(v: number | null | undefined): string | null {
+  return v === null || v === undefined ? null : `${v.toFixed(v === 100 ? 0 : 2)} %`;
+}
+
+export function fmtDuration(s: number | null | undefined): string {
+  if (s === null || s === undefined) return "—";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+/** Human wording for how much of a period was actually monitored. */
+export function fmtCoverage(pct: number): string {
+  if (pct >= 99.95) return "the whole period";
+  if (pct < 0.1) return "less than 0.1% of the period";
+  return `${pct.toFixed(pct < 10 ? 1 : 0)}% of the period`;
+}

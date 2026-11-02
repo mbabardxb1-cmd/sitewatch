@@ -31,13 +31,33 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = []
 
-    # SSRF guard override for local testing ONLY (e.g. monitoring a site on localhost).
-    # Ignored when env=production.
-    allow_private_targets: bool = False
+    # SSRF guard exception for local testing ONLY: IPs/CIDRs (e.g. ["127.0.0.1/32"]) that may be
+    # monitored even though they are private. Always ignored when env=production.
+    private_target_allowlist: list[str] = []
 
-    @property
-    def private_targets_allowed(self) -> bool:
-        return self.allow_private_targets and not self.is_production
+    # Background jobs
+    celery_eager: bool = False  # run tasks inline (tests only)
+    dispatch_interval_s: float = 15.0
+    uptime_check_retention_days: int = 400  # raw checks; hourly rollups are kept indefinitely
+
+    # Uptime monitoring
+    retry_delay_s: int = 30  # delay between retries of a failed check before confirming an outage
+    degraded_alert_after: int = 3  # consecutive slow checks before a degradation alert
+    server_error_alert_threshold: int = 3  # 5xx responses within the window that trigger an alert
+    server_error_window_minutes: int = 60
+    max_check_gap_factor: float = 2.5  # gaps longer than interval x factor count as "unknown" time
+    check_now_cooldown_s: int = 30
+
+    # Email (SMTP). Leave SMTP_HOST empty to disable sending (notifications are logged as failed).
+    notifier_backend: str = "smtp"  # smtp | memory (tests)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    smtp_from: str = "SiteWatch <alerts@example.com>"
+    app_base_url: str = "http://localhost:3000"
 
     @property
     def is_production(self) -> bool:

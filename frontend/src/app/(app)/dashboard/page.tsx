@@ -45,7 +45,7 @@ export default function DashboardPage() {
             )}
             <Stat label="Monthly uptime"
                   value={data.monthly_uptime_pct !== null ? `${data.monthly_uptime_pct.toFixed(2)} %` : <NoData />}
-                  note={data.monthly_uptime_pct === null ? data.monthly_uptime_note : undefined} />
+                  note={data.monthly_uptime_note} />
             <Stat label="Active incidents" value={data.active_incidents} />
             <Stat label="Not yet checked" value={data.unknown} />
           </div>

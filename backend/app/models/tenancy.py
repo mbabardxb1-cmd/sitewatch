@@ -71,6 +71,10 @@ class Website(UUIDPk, Timestamps, Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     consecutive_failures: Mapped[int] = mapped_column(default=0)
     consecutive_successes: Mapped[int] = mapped_column(default=0)
+    # Start of the current run of failed checks (= incident start once the outage is confirmed).
+    failure_streak_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    degraded_streak: Mapped[int] = mapped_column(default=0)
+    degraded_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Audit configuration
     audit_day_of_month: Mapped[int] = mapped_column(default=1)

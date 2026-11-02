@@ -3,9 +3,9 @@
 Website uptime monitoring, technical audits, expiry tracking and monthly maintenance reports
 for agencies managing many client websites.
 
-> **Build status: Phase 2 of 8 complete** — authentication, role-based access control,
-> tenant scoping, full database schema, user management, client and website management,
-> and a dashboard built from stored data.
+> **Build status: Phase 3 of 8 complete** — authentication and role-based access, tenant
+> isolation, client and website management, and background uptime monitoring with incidents,
+> uptime statistics and email alerts.
 > See [docs/PROPOSAL.md](docs/PROPOSAL.md) for the architecture and phase plan, and
 > [docs/PHASES.md](docs/PHASES.md) for what each phase delivered.
 
@@ -16,7 +16,7 @@ for agencies managing many client websites.
 | Frontend | Next.js 16 (App Router, TypeScript), Tailwind CSS |
 | API | FastAPI (Python 3.13), SQLAlchemy 2, Pydantic 2 |
 | Database | PostgreSQL 16, Alembic migrations |
-| Background jobs | Celery + Redis (from phase 3) |
+| Background jobs | Celery + Redis (worker + single beat scheduler) |
 | PDFs | ReportLab (from phase 6) |
 
 ## Repository layout
@@ -47,6 +47,10 @@ alembic upgrade head
 python -m app.cli create-admin --email you@example.com
 uvicorn app.main:app --reload --port 8000
 
+# Background monitoring (two more terminals)
+celery -A app.worker.celery_app worker -Q uptime,notify,default -l info
+celery -A app.worker.celery_app beat -l info        # run exactly ONE beat
+
 # Frontend (second terminal)
 cd frontend
 npm ci
@@ -76,6 +80,32 @@ The web UI listens on `127.0.0.1:3000`. HTTPS termination (Caddy) is added in ph
 then put the app behind your own TLS proxy — session cookies are `Secure` and will not be sent
 over plain HTTP.
 
+## Uptime monitoring — how it works
+
+1. **Beat** ticks every 15 s and runs the dispatcher. The dispatcher claims due websites with
+   `SELECT … FOR UPDATE SKIP LOCKED` and pushes their `next_check_at` forward, so a website can't
+   be checked twice even if several dispatchers run.
+2. A **worker** performs the HTTP check via the SSRF-safe client: DNS is validated at connect
+   time, the socket is pinned to the validated IP, and every redirect hop is re-validated
+   (maximum 5 hops; loops detected).
+3. The **state machine** (`app/monitoring/engine.py`) records the check, then:
+   - On a failure, it retries after `RETRY_DELAY_S`. The outage is confirmed only after
+     `retry_attempts` retries also fail. The incident starts at the first failed check.
+   - It sends one "down" email per incident and one "recovered" email after
+     `recovery_threshold` successes. Further failures never re-alert.
+   - It alerts once per episode for slow responses (`DEGRADED_ALERT_AFTER`) and for repeated
+     5xx errors that never became an outage.
+4. **Notifications** are written to `notification_logs` with a unique de-duplication key, then
+   delivered by a separate task with retries. A safety-net job re-queues anything stuck.
+5. **Uptime %** is time-weighted from actual checks. Time with no checks (worker down, monitoring
+   paused) is reported as *unknown* coverage and never counted as uptime.
+
+Health: `GET /api/readyz` reports database, Redis, the worker heartbeat age and the last
+dispatcher run.
+
+**Limitation:** checks run from a single location. A network problem between the server and a
+site will be reported as downtime.
+
 ## Security model (implemented)
 
 - **Passwords**: argon2id; minimum 12 chars with mixed case and a digit; transparent rehash.
@@ -103,5 +133,7 @@ over plain HTTP.
 
 ## Third-party services
 
-None are required for phases 1–2. Later phases need an SMTP provider (alerts and reports), and
-optionally registrar or hosting API credentials. See the proposal, section 6.
+- **SMTP (required for alerts):** any provider; set the `SMTP_*` variables. Until it's configured,
+  alerts are recorded with status "failed" ("SMTP is not configured"); nothing is silently lost.
+  For local development, `docker compose --profile dev up` starts Mailpit to catch emails.
+- Optional later: registrar or hosting API credentials (phase 5).

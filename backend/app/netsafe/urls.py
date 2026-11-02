@@ -23,12 +23,31 @@ class UnsafeUrlError(ValueError):
     pass
 
 
-def is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+def is_blocked_ip(ip: IPAddress) -> bool:
+    """True for addresses that must never be fetched (ignores any test allowlist)."""
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
     if not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback:
         return True
     return any(ip in net for net in EXTRA_BLOCKED_NETS)
+
+
+def _allowlisted(ip: IPAddress) -> bool:
+    s = get_settings()
+    if s.is_production or not s.private_target_allowlist:
+        return False
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return any(ip in ipaddress.ip_network(n, strict=False) for n in s.private_target_allowlist)
+
+
+def ip_permitted(ip: IPAddress | str) -> bool:
+    if isinstance(ip, str):
+        ip = ipaddress.ip_address(ip.split("%")[0])
+    return not is_blocked_ip(ip) or _allowlisted(ip)
 
 
 def normalize_site_url(raw: str) -> tuple[str, str]:
@@ -60,18 +79,17 @@ def normalize_site_url(raw: str) -> tuple[str, str]:
     except UnicodeError:
         raise UnsafeUrlError("Invalid hostname.") from None
 
-    allow_private = get_settings().private_targets_allowed
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
         ip = None
     if ip is not None:
-        if is_blocked_ip(ip) and not allow_private:
+        if not ip_permitted(ip):
             raise UnsafeUrlError("Private, loopback and reserved IP addresses cannot be monitored.")
     else:
-        if not allow_private and (host in BLOCKED_HOSTNAMES or host.endswith(BLOCKED_SUFFIXES)):
+        if host in BLOCKED_HOSTNAMES or host.endswith(BLOCKED_SUFFIXES):
             raise UnsafeUrlError("Internal hostnames cannot be monitored.")
-        if "." not in host and not allow_private:
+        if "." not in host:
             raise UnsafeUrlError("Hostname must be a fully qualified domain name.")
 
     netloc = f"[{host}]" if ip is not None and ip.version == 6 else host

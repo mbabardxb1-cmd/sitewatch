@@ -46,6 +46,7 @@ class NotificationLog(Base):
     channel: Mapped[str] = mapped_column(String(20))
     recipients: Mapped[list[str]] = mapped_column(ARRAY(String(320)), default=list)
     subject: Mapped[str | None] = mapped_column(String(500))
+    body: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(str_enum("pending", "sent", "failed", "suppressed", name="notification_status"))
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=sa.func.now())

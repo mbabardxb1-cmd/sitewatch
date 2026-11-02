@@ -80,3 +80,84 @@
 **Carried to phase 3**
 - Websites of a deactivated client should be skipped by the monitoring scheduler.
 - DNS-level SSRF checks (resolved-IP validation, pinned connections, redirect re-validation).
+
+## Phase 3 — Background uptime monitoring, incidents, alerts ✅
+
+**Delivered**
+- **SSRF-safe HTTP client** (`app/netsafe/http.py`). DNS is resolved at connect time and the
+  connection is refused if *any* answer is private, loopback, link-local, CGNAT or metadata.
+  The socket connects to the validated IP (defeats DNS rebinding) while TLS still verifies the
+  real hostname. Redirects are followed manually and each hop is re-validated (max 5, loops
+  detected). Environment proxies are ignored. The Phase 2 "allow private targets" switch is
+  replaced by an explicit, non-production-only `PRIVATE_TARGET_ALLOWLIST` of IP networks.
+- **Uptime probe** (`app/monitoring/checker.py`). Records the HTTP status, response time and final
+  URL, and classifies failures as timeout, DNS, connect, SSL, unexpected status, redirects or
+  blocked.
+- **Scheduler**: Celery beat ticks every 15 s. The dispatcher claims due websites with
+  `FOR UPDATE SKIP LOCKED` and leases them forward, so websites can't be double-checked. Paused
+  and archived websites, and websites of deactivated clients, are skipped. Network I/O happens
+  outside any database lock; results are applied under a row lock.
+- **State machine** (`app/monitoring/engine.py`):
+  - quick retries (`RETRY_DELAY_S`) before an outage is confirmed;
+  - incidents start at the first failed check;
+  - one "down" and one "recovered" email per incident, with a recovery threshold;
+  - one alert per slow-response episode;
+  - one alert per window for repeated 5xx errors that never became an outage.
+- **Notifications** (`app/notify/`): a `Notifier` interface with an SMTP sender (Slack or webhooks
+  can be added as further senders). Recipients come from the website plus global, client and
+  website rules; a disabled website rule mutes an event. Optional minimum interval per rule.
+  Delivery is de-duplicated by a unique key per event, retried with backoff, and logged as
+  sent, failed or suppressed. Nothing is ever silently dropped, e.g. "No recipients configured"
+  and "SMTP is not configured" are recorded.
+- **Statistics** (`app/monitoring/stats.py`): time-weighted uptime for 24 h, 7 days, 30 days and
+  the calendar month, computed in SQL. Gaps without checks count as unknown and are excluded,
+  never counted as uptime. Includes coverage, downtime and incident counts, hourly response
+  times (average, p95, max), hourly rollups that survive raw-check retention, and a daily
+  retention job.
+- **API**: `/websites/{id}/uptime`, `/response-times`, `/checks` (staff only), `/check-now`
+  (rate-limited), `/uptime/overview`, `/incidents` (+ acknowledge; clients get a cause-free
+  view), `/notification-rules`, `/notification-logs` (scoped), `/notification-events`,
+  `/notifications/test`. `/api/readyz` reports worker heartbeat and dispatcher age.
+- **UI**: Uptime Monitoring page (active incidents with acknowledge, per-site 24 h/7 d/30 d);
+  website page with uptime tiles that state their coverage, an hourly response-time chart
+  (crosshair tooltip, threshold line, table view), incidents and recent checks (staff); a
+  Notifications page (rules, test email, delivery log); real monthly uptime on the dashboard.
+- **Compose**: `worker` and a single `beat` service, plus a `mailpit` dev profile.
+
+**Verification**
+- `pytest`: 163 tests passing (58 new). Highlights:
+  - **Probe against real local HTTP(S) servers**: status codes, configurable expected codes,
+    redirects, loops and long chains, redirects to the metadata IP, private ranges and `file://`
+    (blocked), slow/degraded, timeouts, refused connections, self-signed TLS, DNS rebinding (a
+    hostname resolving to 169.254.169.254), mixed public/private DNS answers, IP pinning,
+    environment proxies ignored.
+  - **State machine**: retry then confirm, incident starts at the first failure, a transient
+    failure never alerts, an ongoing outage alerts once, recovery threshold, a second outage
+    gives a new incident, degradation and 5xx alerts once per episode or window, mute rules,
+    no-recipient and failed-delivery logging.
+  - **Scheduler**: only due, active, client-active websites are claimed; 4 concurrent
+    dispatchers × 40 websites → each claimed exactly once; full beat → check → email pipeline
+    against a real server.
+  - **Statistics**: no data → `null`; gaps counted as unknown, not uptime; open and clipped
+    incidents; rollups are idempotent and survive retention.
+  - **API**: scoping and 404s, raw checks staff-only, client incident view without causes,
+    acknowledge rules, manual-check rate limit; real SMTP delivery to an `aiosmtpd` server.
+- **Live run with real processes** (Celery worker + beat, uvicorn, `aiosmtpd`; nobody logged in,
+  status read straight from the database):
+  1. A site on 127.0.0.1 was registered (60 s interval, 1 retry) and checked automatically.
+  2. The site process was stopped: a failed check, a retry 15 s later, outage confirmed, and the
+     incident started at the first failure.
+  3. 20 s later it was still one incident.
+  4. The site was restarted: recovery confirmed and the incident closed (80 s).
+  5. The SMTP server received exactly one "down" and one "recovered" email per outage (4 emails
+     for 2 outages), with no duplicates.
+- **Browser**: dashboard monthly uptime, Uptime page, website page (chart tooltip, manual
+  check), Notifications page. The client user sees incidents without causes, has no
+  Notifications page, and the API returns 7 client-safe incident fields.
+- `alembic check`: no drift; migration 0002 upgrade → downgrade → upgrade verified.
+
+**Limitations / not verified here**
+- This sandbox has no direct internet access, so live checks ran only against local servers.
+  The public-internet path is the same code (proven by the pinned-connection tests).
+- Docker images are still not built here (no Docker daemon); compose config validates.
+- Checks run from a single location.

@@ -29,9 +29,13 @@ def test_unsafe_urls_rejected(raw):
         normalize_site_url(raw)
 
 
-def test_private_override_only_outside_production(settings):
-    settings.allow_private_targets = True
+def test_private_allowlist_only_outside_production(settings):
+    settings.private_target_allowlist = ["127.0.0.1/32"]
     assert normalize_site_url("http://127.0.0.1:8080")[1] == "127.0.0.1"
+    with pytest.raises(UnsafeUrlError):  # only the listed network is opened up
+        normalize_site_url("http://10.0.0.1")
+    with pytest.raises(UnsafeUrlError):  # names are never allowlisted
+        normalize_site_url("http://localhost:8080")
     settings.env = "production"
     with pytest.raises(UnsafeUrlError):
         normalize_site_url("http://127.0.0.1:8080")

@@ -134,4 +134,6 @@ def test_security_headers_and_health(api):
     assert r.status_code == 200
     assert r.headers["X-Frame-Options"] == "DENY"
     ready = api.get("/api/readyz").json()
-    assert ready["checks"] == {"database": "ok", "redis": "ok"}
+    assert ready["status"] == "ok"
+    assert ready["checks"]["database"] == "ok" and ready["checks"]["redis"] == "ok"
+    assert "worker_heartbeat_age_s" in ready["checks"]

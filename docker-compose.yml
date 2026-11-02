@@ -1,4 +1,4 @@
-# Phase 1 stack. Workers, scheduler, mail and HTTPS proxy are added in later phases.
+# SiteWatch stack. The HTTPS reverse proxy is added in phase 8.
 services:
   db:
     image: postgres:16-alpine
@@ -36,6 +36,33 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/readyz')"]
       interval: 15s
     restart: unless-stopped
+
+  worker:
+    build: ./backend
+    env_file: .env
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "uptime,notify,default",
+              "--concurrency", "8", "-l", "info"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Exactly one beat process. It only ticks; schedules live in PostgreSQL.
+  beat:
+    build: ./backend
+    env_file: .env
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Local development only: catches all outgoing email (UI at http://localhost:8025).
+  # Start with:  docker compose --profile dev up -d   and set SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_STARTTLS=false
+  mailpit:
+    image: axllent/mailpit:v1.27.0
+    profiles: ["dev"]
+    ports: ["127.0.0.1:8025:8025"]
 
   web:
     build:
