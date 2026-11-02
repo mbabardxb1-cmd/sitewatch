@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, ErrorNote, HealthCell } from "@/components/ui";
 import { MonitoringPanel } from "@/components/MonitoringPanel";
+import { WebsiteAuditCard } from "@/components/WebsiteAuditCard";
 import { CrawlConfigForm, MonitoringFields, type MonitoringValues } from "@/components/WebsiteForms";
 import { ApiError, api, fmtDate, isStaffView, type UserRow, type Website, type WebsiteStaff } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -88,6 +89,8 @@ export default function WebsiteDetailPage() {
       </Card>
 
       <MonitoringPanel websiteId={site.id} degradedMs={staff?.degraded_threshold_ms} archived={site.status === "archived"} />
+
+      <WebsiteAuditCard websiteId={site.id} auditDay={staff?.audit_day_of_month} archived={site.status === "archived"} />
 
       {staff && <MonitoringCard site={staff} writable={writable} onSaved={setSite} />}
       {staff && (

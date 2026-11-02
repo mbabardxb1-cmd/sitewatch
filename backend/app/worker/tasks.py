@@ -138,3 +138,40 @@ def purge_old_checks() -> int:
         db.commit()
     log.info("Purged %s uptime checks older than %s days", n, days)
     return n or 0
+
+
+# ---- Technical audits ---------------------------------------------------------------------
+
+@celery.task(soft_time_limit=2 * 3600, time_limit=2 * 3600 + 300, acks_late=False)
+def run_audit(run_id: str) -> str | None:
+    """acks_late is off: a crawl must not be re-delivered and run twice after a worker restart;
+    a run left 'running' is failed by fail_stuck_audits instead."""
+    from app.audit.service import execute_run
+
+    with SessionLocal() as db:
+        run = execute_run(db, uuid.UUID(run_id))
+        return run.status if run else None
+
+
+@celery.task
+def schedule_audits() -> int:
+    from app.audit.service import create_due_scheduled_runs
+
+    from app.models import AuditRun
+
+    with SessionLocal() as db:
+        ids = create_due_scheduled_runs(db)
+        # Re-send runs whose task message was lost; claim_run() makes duplicates harmless.
+        stale = list(db.scalars(select(AuditRun.id).where(
+            AuditRun.status == "queued", AuditRun.created_at < datetime.now(UTC) - timedelta(minutes=15))))
+    for rid in ids + [s for s in stale if s not in ids]:
+        run_audit.delay(str(rid))
+    return len(ids)
+
+
+@celery.task
+def fail_stuck_audits() -> int:
+    from app.audit.service import fail_stuck_runs
+
+    with SessionLocal() as db:
+        return fail_stuck_runs(db)

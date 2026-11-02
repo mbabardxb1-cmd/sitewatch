@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import type { Severity } from "@/lib/api";
 
 export type Status = "healthy" | "warning" | "critical" | "unknown";
-export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
 const STATUS_STYLE: Record<Status, string> = {
   healthy: "bg-emerald-50 text-emerald-800 ring-emerald-600/20",
@@ -105,4 +105,21 @@ export function Stat({ label, value, note }: { label: string; value: ReactNode; 
 
 export function NoData({ children = "No data" }: { children?: ReactNode }) {
   return <span className="text-base font-normal text-slate-400">{children}</span>;
+}
+
+const COVERAGE: Record<string, [string, string]> = {
+  performed: ["Checked", "bg-emerald-50 text-emerald-800 ring-emerald-600/20"],
+  partial: ["Partly checked", "bg-amber-50 text-amber-800 ring-amber-600/20"],
+  not_checked: ["Not checked", "bg-slate-100 text-slate-700 ring-slate-500/20"],
+  not_applicable: ["Not applicable", "bg-white text-slate-500 ring-slate-300"],
+};
+
+export function CoverageBadge({ status }: { status: string }) {
+  const [label, style] = COVERAGE[status] ?? [status, COVERAGE.not_checked[1]];
+  return <span className={`inline-flex whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${style}`}>{label}</span>;
+}
+
+const CERTAINTY: Record<string, string> = { confirmed: "Confirmed", warning: "Warning", could_not_check: "Could not check" };
+export function CertaintyLabel({ c }: { c: string }) {
+  return <span className={c === "confirmed" ? "text-slate-700" : c === "warning" ? "text-amber-800" : "text-slate-500 italic"}>{CERTAINTY[c] ?? c}</span>;
 }

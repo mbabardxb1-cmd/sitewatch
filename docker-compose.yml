@@ -47,6 +47,16 @@ services:
       redis: { condition: service_healthy }
     restart: unless-stopped
 
+  # Long-running crawls get their own worker so they never delay uptime checks.
+  worker-audit:
+    build: ./backend
+    env_file: .env
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "audit", "--concurrency", "2", "-l", "info"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
   # Exactly one beat process. It only ticks; schedules live in PostgreSQL.
   beat:
     build: ./backend

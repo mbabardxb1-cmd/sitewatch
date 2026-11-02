@@ -262,3 +262,87 @@ export function fmtCoverage(pct: number): string {
   if (pct < 0.1) return "less than 0.1% of the period";
   return `${pct.toFixed(pct < 10 ? 1 : 0)}% of the period`;
 }
+
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+export const SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
+
+export type AuditRun = {
+  id: string;
+  website_id: string;
+  website_name: string;
+  trigger: "scheduled" | "manual";
+  period: string | null;
+  status: "queued" | "running" | "completed" | "partial" | "failed";
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  pages_crawled: number;
+  error: string | null;
+  summary: {
+    by_severity?: Record<Severity, number>;
+    by_certainty?: Record<string, number>;
+    counts?: { new: number; recurring: number; resolved: number; persisting: number };
+    broken_internal_links?: number;
+    broken_external_links?: number;
+    external_links_checked?: number;
+    images_checked?: number;
+    requests?: number;
+    duration_s?: number;
+    robots_blocked?: number;
+    excluded?: number;
+    stopped_reason?: string | null;
+  };
+};
+
+export type CoverageRow = { check_key: string; label: string; status: "performed" | "partial" | "not_checked" | "not_applicable"; reason?: string; [k: string]: unknown };
+
+export type AuditDetail = AuditRun & { coverage: CoverageRow[]; config: Partial<CrawlConfig> };
+
+export type AuditFinding = {
+  id: string;
+  check_key: string;
+  check_label: string;
+  severity: Severity;
+  certainty: "confirmed" | "warning" | "could_not_check";
+  title: string;
+  url: string | null;
+  source_url: string | null;
+  detail: Record<string, unknown>;
+};
+
+export type CompareIssue = { id: string; title: string; severity: Severity; check_key: string; status: string; resolution_note: string | null };
+
+export type AuditCompare = {
+  previous_run_id: string | null;
+  previous_finished_at: string | null;
+  pages_crawled: { current: number; previous: number | null };
+  by_severity: Record<Severity, { current: number; previous: number | null }>;
+  new: CompareIssue[];
+  recurring: CompareIssue[];
+  resolved: CompareIssue[];
+  persisting_count: number;
+};
+
+export type IssueRow = {
+  id: string;
+  website_id: string;
+  website_name: string;
+  category: string;
+  title: string;
+  severity: Severity;
+  status: string;
+  first_seen: string;
+  resolved_at: string | null;
+  // staff only
+  check_key?: string;
+  certainty?: string;
+  url?: string | null;
+  detail?: Record<string, unknown>;
+  occurrences?: number;
+  reopened_count?: number;
+  resolution_note?: string | null;
+  assignee_email?: string | null;
+  comment_count?: number;
+};
+
+export type IssueComment = { id: string; author_email: string | null; body: string; created_at: string };

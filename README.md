@@ -3,9 +3,9 @@
 Website uptime monitoring, technical audits, expiry tracking and monthly maintenance reports
 for agencies managing many client websites.
 
-> **Build status: Phase 3 of 8 complete** — authentication and role-based access, tenant
-> isolation, client and website management, and background uptime monitoring with incidents,
-> uptime statistics and email alerts.
+> **Build status: Phase 4 of 8 complete** — authentication and role-based access, tenant
+> isolation, client and website management, background uptime monitoring with incidents and
+> email alerts, and monthly technical audits with issue tracking.
 > See [docs/PROPOSAL.md](docs/PROPOSAL.md) for the architecture and phase plan, and
 > [docs/PHASES.md](docs/PHASES.md) for what each phase delivered.
 
@@ -49,6 +49,7 @@ uvicorn app.main:app --reload --port 8000
 
 # Background monitoring (two more terminals)
 celery -A app.worker.celery_app worker -Q uptime,notify,default -l info
+celery -A app.worker.celery_app worker -Q audit -c 2 -l info   # crawls
 celery -A app.worker.celery_app beat -l info        # run exactly ONE beat
 
 # Frontend (second terminal)
@@ -105,6 +106,27 @@ dispatcher run.
 
 **Limitation:** checks run from a single location. A network problem between the server and a
 site will be reported as downtime.
+
+## Technical audits — how they work
+
+- **Scheduling:** each website has an audit day (1–28). An hourly job creates that month's
+  scheduled run once the day arrives; a unique index on (website, month) makes duplicates
+  impossible. Manual audits can be started from the UI or API (one at a time per website).
+- **Crawler** (`app/audit/crawler.py`): starts at the homepage, breadth-first within the
+  configured depth and page limits. It obeys robots.txt (including `Crawl-delay`), waits between
+  requests (the website's requests-per-second setting; 1 request/s per external host), skips
+  excluded URL patterns, and uses the same SSRF-safe client as uptime checks. Sitemaps are parsed
+  with `defusedxml`.
+- **Checks** (`app/audit/checks.py`): 19 checks. Each finding is *confirmed*, *warning* (e.g. a
+  timeout that may be transient) or *could not check* (e.g. a site that blocks bots). Each check
+  records its coverage: checked, partly checked (with the reason, e.g. "stopped at the page
+  limit"), not checked (with the reason) or not applicable. JavaScript rendering is not
+  implemented and is always reported as not checked.
+- **Issues:** confirmed and warning findings become issues tracked across audits as new,
+  persisting, recurring or resolved. An issue is resolved **only** by an audit that re-checked it,
+  or that crawled the whole site and found no remaining references to the URL. Developers can
+  mark "fixed – awaiting verification", but cannot set "resolved" themselves.
+- **Exports:** CSV (protected against spreadsheet formula injection) and JSON with full coverage.
 
 ## Security model (implemented)
 

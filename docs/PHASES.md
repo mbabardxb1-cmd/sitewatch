@@ -161,3 +161,80 @@
   The public-internet path is the same code (proven by the pinned-connection tests).
 - Docker images are still not built here (no Docker daemon); compose config validates.
 - Checks run from a single location.
+
+## Phase 4 — Monthly crawler and technical audit engine ✅
+
+**Delivered**
+- **Crawler** (`app/audit/crawler.py`): breadth-first from the homepage within depth and page
+  limits. It:
+  - obeys robots.txt for agent `SiteWatchMonitor` (and `*`), including `Crawl-delay`, and only
+    fetches sitemaps robots.txt allows or explicitly declares;
+  - rate-limits per host and skips excluded URL patterns (glob or `re:`);
+  - checks links beyond the depth limit without parsing them;
+  - analyses a redirect target once, under its own URL;
+  - checks external links and images with HEAD, falling back to GET (capped per audit);
+  - fetches every request through the SSRF-safe client.
+- **19 checks** (`app/audit/checks.py`): broken internal/external links, redirect chains and
+  loops, access-restricted pages, robots-excluded pages, missing/duplicate titles and meta
+  descriptions, broken images, missing alt text, slow pages, robots.txt availability and
+  directives (incl. disallow-all), noindex on the homepage or on sitemap URLs, sitemap
+  presence/validity/URL errors/robots conflicts/foreign hosts, SSL validity and expiry
+  (`app/netsafe/tls.py`), important-page availability, and JavaScript rendering (always reported
+  as not checked).
+- **Honesty model:** each finding is confirmed, warning or could-not-check; each check records
+  checked, partly checked, not checked or not applicable, with a reason. Runs are "partial" when
+  anything was limited. Findings are capped per check, with the cap recorded.
+- **Issue tracking** (`app/audit/service.py`): new, persisting, recurring (resolved then found
+  again) and resolved. Resolution requires verification by a later audit, which is recorded with
+  a note. Developer states: acknowledged, in progress, fixed – awaiting verification (re-opened
+  automatically if the next audit still sees the problem). Could-not-check findings never become
+  issues. Internal notes are staff-only.
+- **Scheduling:** an hourly job creates due monthly runs, idempotent via a partial unique index;
+  stale queued runs are re-sent. Runs are claimed atomically (queued → running), so a duplicate
+  task delivery does nothing; stuck runs are failed after 3 hours. Audits run on their own
+  `audit` queue and worker.
+- **Notifications:** "audit completed" and "critical audit findings" (new or recurring
+  critical/high issues only), using the Phase 3 de-duplication and logging.
+- **API:**
+  - Audits: `/audits`, `/audits/{id}` (with full coverage), `/findings` (filters), `/compare`,
+    `/export?format=csv|json`, `POST /websites/{id}/audits`.
+  - Important pages: `/websites/{id}/important-urls`.
+  - Issues: `/issues` (client-safe view for clients; informational items hidden), `PATCH`
+    (cannot set "resolved"), `/issues/{id}/comments`.
+- **UI:**
+  - Technical Audits page (history, start audit, auto-refresh).
+  - Audit detail page (stats, comparison with the previous audit, check coverage, filterable
+    findings, CSV/JSON export).
+  - Issues page (filters, status changes, details and internal notes; simplified for clients).
+  - Website page: an audit card with open-issue counts, recent audits and the important-pages
+    editor.
+- **Migration 0003:** finding titles; issue certainty, detail, resolution note and reopen count.
+
+**Verification**
+- `pytest`: 185 tests passing (22 new), using local sites with known defects:
+  - **Detection:** every defect is found exactly once.
+  - **Crawler behaviour:** robots.txt respected (nothing under `/private/` requested; with
+    disallow-all, only robots.txt is fetched); depth limit; exclusions; `Crawl-delay` honoured
+    over the configured rate (fake clock).
+  - **Issue lifecycle:** resolution is verified, with a note; a removed external link is resolved
+    as "no remaining references"; a re-broken page recurs; "awaiting verification" re-opens.
+  - **No false resolutions:** a partial crawl and an unreachable site resolve nothing.
+  - **Scheduling:** the scheduler is idempotent; a duplicate task delivery runs once.
+  - **SSL:** a self-signed certificate is reported invalid with its expiry date.
+  - **API:** permissions and isolation; client issue fields; "resolved" can't be set by hand;
+    assignee rules; notes hidden from clients; CSV formula neutralisation.
+- **Live run** with real Celery worker and beat processes:
+  - A manual audit started in the browser crawled 11 pages in about 10 seconds; the findings
+    matched the site's defects; the CSV export downloaded.
+  - A developer moved an issue to "in progress" and added a note. The client saw "Being worked
+    on", no notes, and 403 from the audits API.
+  - Calling the scheduler twice created 3 runs, then 0. The scheduled re-audit kept the same 11
+    issues (no false resolutions). The unreachable sites were reported "partial" with nothing
+    checked.
+  - Audit emails were sent, or logged as "No recipients configured".
+
+**Limitations**
+- JavaScript-rendered pages are not executed (reported as not checked). Playwright could be
+  added later as an optional renderer.
+- Per-audit caps: 300 external links, 500 images, 100 extra sitemap URLs, 1000 findings per
+  check (all reported when hit).
