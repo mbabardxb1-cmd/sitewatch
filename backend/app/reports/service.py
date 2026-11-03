@@ -114,7 +114,9 @@ def due_period(now: datetime, generation_day: int) -> str | None:
 
 def schedule_monthly(db: Session, now: datetime | None = None) -> list[uuid.UUID]:
     now = now or datetime.now(UTC)
-    period = due_period(now, int(get_setting(db, "reports.generation_day", 2)))
+    from app.services.retention import setting_int
+
+    period = due_period(now, setting_int(db, "reports.generation_day"))
     ids: list[uuid.UUID] = []
     if period is None:
         return ids

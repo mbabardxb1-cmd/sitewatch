@@ -1,4 +1,27 @@
-# SiteWatch stack. The HTTPS reverse proxy is added in phase 8.
+# SiteWatch production stack.  See docs/DEPLOYMENT.md.
+#   docker compose up -d --build
+# Only Caddy publishes ports (80/443). Everything else is on the internal network.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "20m", max-file: "5" }
+
+x-backend: &backend
+  image: sitewatch-backend:${SITEWATCH_VERSION:-latest}
+  build:
+    context: ./backend
+    network: ${BUILD_NETWORK:-default}
+    secrets: [extra_ca]
+    args:
+      HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+      https_proxy: ${BUILD_HTTPS_PROXY:-}
+      INSTALL_FONTS: ${INSTALL_FONTS:-true}
+  env_file: .env
+  environment:
+    STORAGE_DIR: /data
+  restart: unless-stopped
+  logging: *logging
+
 services:
   db:
     image: postgres:16-alpine
@@ -9,6 +32,7 @@ services:
       interval: 5s
       retries: 20
     restart: unless-stopped
+    logging: *logging
 
   redis:
     image: redis:7-alpine
@@ -18,77 +42,135 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
     restart: unless-stopped
+    logging: *logging
 
   migrate:
-    build: ./backend
-    env_file: .env
-    command: ["alembic", "upgrade", "head"]
+    <<: *backend
+    command: ["sh", "-c", "python -m app.cli check-config && alembic upgrade head"]
+    restart: "no"
     depends_on:
       db: { condition: service_healthy }
 
   api:
-    build: ./backend
-    env_file: .env
-    environment: { STORAGE_DIR: /data }
+    <<: *backend
     volumes: [appdata:/data]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/readyz')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/readyz', timeout=5)"]
       interval: 15s
-    restart: unless-stopped
+      timeout: 6s
+      retries: 3
 
   worker:
-    build: ./backend
-    env_file: .env
-    environment: { STORAGE_DIR: /data }
+    <<: *backend
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "uptime,notify,default", "--concurrency", "8", "-l", "info"]
     volumes: [appdata:/data]
-    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "uptime,notify,default",
-              "--concurrency", "8", "-l", "info"]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10 >/dev/null"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
 
-  # Long-running crawls get their own worker so they never delay uptime checks.
+  # Long-running crawls and PDF generation, so they never delay uptime checks.
   worker-audit:
-    build: ./backend
-    env_file: .env
-    environment: { STORAGE_DIR: /data }
-    volumes: [appdata:/data]
+    <<: *backend
     command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "audit", "--concurrency", "2", "-l", "info"]
+    volumes: [appdata:/data]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10 >/dev/null"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
 
   # Exactly one beat process. It only ticks; schedules live in PostgreSQL.
   beat:
-    build: ./backend
-    env_file: .env
+    <<: *backend
     command: ["celery", "-A", "app.worker.celery_app", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.cli", "health", "beat", "--max-age", "120"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  web:
+    image: sitewatch-web:${SITEWATCH_VERSION:-latest}
+    build:
+      context: ./frontend
+      network: ${BUILD_NETWORK:-default}
+      secrets: [extra_ca]
+      args:
+        BACKEND_URL: "http://api:8000"
+        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+    depends_on: [api]
     restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env (contact address for Let's Encrypt)}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [api, web]
+    restart: unless-stopped
+    logging: *logging
+
+  # ---- operations (not started by default) ----
+  backup:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    env_file: .env
+    entrypoint: ["/scripts/backup.sh"]
+    volumes:
+      - appdata:/data:ro
+      - ./deploy/backup:/scripts:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db: { condition: service_healthy }
+
+  restore:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    env_file: .env
+    entrypoint: ["/scripts/restore.sh"]
+    volumes:
+      - appdata:/data
+      - ./deploy/backup:/scripts:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db: { condition: service_healthy }
 
   # Local development only: catches all outgoing email (UI at http://localhost:8025).
-  # Start with:  docker compose --profile dev up -d   and set SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_STARTTLS=false
   mailpit:
     image: axllent/mailpit:v1.27.0
     profiles: ["dev"]
     ports: ["127.0.0.1:8025:8025"]
 
-  web:
-    build:
-      context: ./frontend
-      args: { BACKEND_URL: "http://api:8000" }
-    depends_on: [api]
-    ports: ["127.0.0.1:3000:3000"]
-    restart: unless-stopped
+secrets:
+  extra_ca:
+    file: ${EXTRA_CA_FILE:-./deploy/no-extra-ca.pem}
 
 volumes:
   pgdata:
   redisdata:
-  appdata:   # report PDFs and uploaded logo - include in backups
+  appdata:      # report PDFs and the uploaded logo - included in backups
+  caddydata:    # TLS certificates
+  caddyconfig:

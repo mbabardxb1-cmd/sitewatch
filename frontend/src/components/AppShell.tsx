@@ -5,10 +5,8 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 
-type NavItem = { href: string; label: string; perm: string; phase?: number };
+type NavItem = { href: string; label: string; perm: string };
 
-// `phase` marks sections whose backend is not built yet; they are shown as unavailable
-// rather than as fake screens.
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", perm: "website.read" },
   { href: "/websites", label: "Websites", perm: "website.read" },
@@ -21,7 +19,7 @@ const NAV: NavItem[] = [
   { href: "/reports", label: "Reports", perm: "report.read" },
   { href: "/notifications", label: "Notifications", perm: "notification.read" },
   { href: "/users", label: "Users & Permissions", perm: "user.manage" },
-  { href: "/settings", label: "Settings", perm: "settings.manage", phase: 8 },
+  { href: "/settings", label: "Settings", perm: "settings.manage" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -34,15 +32,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <nav className="space-y-0.5 p-3">
       {items.map((n) => {
         const active = pathname.startsWith(n.href);
-        if (n.phase) {
-          return (
-            <span key={n.href} title={`Available from phase ${n.phase}`}
-                  className="flex items-center justify-between rounded-md px-3 py-2 text-sm text-slate-400">
-              {n.label}
-              <span className="text-[10px] uppercase tracking-wide">Soon</span>
-            </span>
-          );
-        }
         return (
           <Link key={n.href} href={n.href} onClick={() => setOpen(false)}
                 className={`block rounded-md px-3 py-2 text-sm ${active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"}`}>

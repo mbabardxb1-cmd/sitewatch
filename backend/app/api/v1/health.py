@@ -40,6 +40,9 @@ def readyz(response: Response):
             workers[name] = round(time.time() - float(v), 1) if v else None
     except Exception:  # noqa: BLE001
         pass
+    stale_after = 120  # seconds; heartbeat every 30 s, dispatch every 15 s
+    workers["background"] = ("ok" if all(v is not None and v < stale_after for k, v in workers.items()
+                                          if k.endswith("_age_s")) else "stale")
     checks_out = {**checks, **workers}
     if not ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

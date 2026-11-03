@@ -365,3 +365,16 @@ def test_unreachable_audit_is_grouped_and_plain_for_clients(db, make_client, mak
     snap = build_snapshot(db, w, PERIOD, "technical", now=NOW)
     assert any("could not access the website" in x for x in snap["summary"])
     assert snap["recommendations"][0]["text"].startswith("Make the website reachable")
+
+
+def test_helvetica_fallback_when_unicode_fonts_missing(db, site, monkeypatch):
+    import app.reports.pdf as pdfmod
+
+    monkeypatch.setattr(pdfmod, "FONT_DIRS", ["/nonexistent"])
+    monkeypatch.setattr(pdfmod, "_FONTS", None)
+    site.name = "Café Zürich – 東京"
+    db.commit()
+    pdf = render_pdf(build_snapshot(db, site, PERIOD, "client", now=NOW))
+    txt = text_of(pdf)
+    assert "Café Zürich" in txt and "東京" not in txt  # Western text kept; unsupported characters replaced
+    monkeypatch.setattr(pdfmod, "_FONTS", None)  # let later tests register DejaVu again

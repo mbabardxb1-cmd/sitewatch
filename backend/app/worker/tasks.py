@@ -131,18 +131,14 @@ def rollup_metrics() -> None:
 
 
 @celery.task
-def purge_old_checks() -> int:
-    """Delete raw checks past retention. Hourly rollups are refreshed first so history survives."""
-    from app.models import UptimeCheck
+def run_retention() -> dict:
+    """Daily data retention (limits set on the Settings page)."""
+    from app.services.retention import run_retention as _run
 
-    days = get_settings().uptime_check_retention_days
-    cutoff = datetime.now(UTC) - timedelta(days=days)
     with SessionLocal() as db:
-        stats.rollup(db, hours_back=24 * 2, now=cutoff + timedelta(days=1))
-        n = db.execute(delete(UptimeCheck).where(UptimeCheck.checked_at < cutoff)).rowcount
-        db.commit()
-    log.info("Purged %s uptime checks older than %s days", n, days)
-    return n or 0
+        out = _run(db)
+    log.info("Retention run complete", extra={"deleted": str(out)})
+    return out
 
 
 # ---- Technical audits ---------------------------------------------------------------------

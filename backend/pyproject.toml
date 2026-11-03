@@ -20,9 +20,11 @@ dependencies = [
   "reportlab==4.4.10",
   "pillow==12.3.0",
   "python-multipart==0.0.32",
+  "packaging==26.3",  # required at runtime by kombu's Redis transport, but not declared by kombu
 ]
 
 [project.optional-dependencies]
+sentry = ["sentry-sdk==2.70.0"]
 dev = ["pytest==9.2.0", "aiosmtpd==1.4.6", "pypdf==6.20.1"]
 
 [tool.setuptools.packages.find]

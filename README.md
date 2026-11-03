@@ -3,13 +3,28 @@
 Website uptime monitoring, technical audits, expiry tracking and monthly maintenance reports
 for agencies managing many client websites.
 
-> **Build status: Phase 7 of 8 complete** — authentication and role-based access, tenant
-> isolation, client and website management, background uptime monitoring with incidents and
-> email alerts, monthly technical audits with issue tracking, domain/hosting/SSL expiry
-> monitoring, automated monthly PDF reports, and a client dashboard with a full, automatically
-> enforced permission matrix (see [docs/PERMISSIONS.md](docs/PERMISSIONS.md)).
-> See [docs/PROPOSAL.md](docs/PROPOSAL.md) for the architecture and phase plan, and
-> [docs/PHASES.md](docs/PHASES.md) for what each phase delivered.
+> **Status: all 8 phases complete.** Deploy with [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md); run it
+> with [docs/OPERATIONS.md](docs/OPERATIONS.md). Acceptance criteria and their evidence:
+> [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md). Roles and isolation: [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
+> Architecture: [docs/PROPOSAL.md](docs/PROPOSAL.md). Build log: [docs/PHASES.md](docs/PHASES.md).
+
+## Features
+- **Uptime monitoring** every 1–5 minutes per website: status codes, response times, SSL,
+  timeouts and DNS errors; retries before an outage is confirmed; incidents; one down and one
+  recovered email per outage; uptime % that never counts unmonitored time as uptime.
+- **Monthly technical audits:** a robots.txt-aware crawler with 19 checks (broken links,
+  redirects, titles/descriptions, images and alt text, sitemap, robots, noindex, SSL, slow pages,
+  important pages). Every check reports whether it actually ran. Issues are tracked as new,
+  recurring or verified-fixed.
+- **Domain, hosting and SSL expiry:** RDAP/WHOIS lookups, manual hosting dates (clearly
+  labelled), certificate checks, and alerts at 60/30/14/7 days.
+- **Monthly PDF reports** (client and technical): generated automatically, published to clients
+  after review, optionally emailed. They keep monitoring results separate from maintenance work
+  performed.
+- **Roles:** super admin, developer and client, enforced on every endpoint, with tenant
+  isolation proven by an automated matrix over every route.
+- **Operations:** Docker Compose with automatic HTTPS (Caddy), health checks, JSON logs with
+  request IDs, optional Sentry, configurable retention, a security log, and tested backup/restore.
 
 ## Stack
 
@@ -20,13 +35,15 @@ for agencies managing many client websites.
 | Database | PostgreSQL 16, Alembic migrations |
 | Background jobs | Celery + Redis (worker + single beat scheduler) |
 | PDFs | ReportLab (DejaVu fonts for Unicode) |
+| Proxy / TLS | Caddy 2 (automatic HTTPS) |
 
 ## Repository layout
 
 ```
 backend/   FastAPI app (app/), Alembic migrations, pytest suite
 frontend/  Next.js app
-docs/      Proposal, phase log
+deploy/    Caddyfile, backup/restore scripts
+docs/      Deployment, operations, permissions, acceptance, proposal, phase log
 docker-compose.yml, .env.example
 ```
 
@@ -71,17 +88,16 @@ cd frontend && npm run typecheck && npm run build
 
 Override test connections with `TEST_DATABASE_URL` / `TEST_REDIS_URL`.
 
-## Docker
+## Production
+
+See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. In short:
 
 ```bash
-cp .env.example .env               # set strong POSTGRES_PASSWORD and matching DATABASE_URL
+cp .env.example .env               # domain, passwords, ENCRYPTION_KEY, SMTP
 docker compose up -d --build
-docker compose run --rm api python -m app.cli create-admin --email you@example.com
+docker compose exec api python -m app.cli create-admin --email you@your-agency.example
+docker compose --profile ops run --rm backup     # schedule daily with cron
 ```
-
-The web UI listens on `127.0.0.1:3000`. HTTPS termination (Caddy) is added in phase 8; until
-then put the app behind your own TLS proxy — session cookies are `Secure` and will not be sent
-over plain HTTP.
 
 ## Uptime monitoring — how it works
 

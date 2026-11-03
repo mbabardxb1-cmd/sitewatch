@@ -53,7 +53,7 @@ export default function ClientsPage() {
                    onChange={(e) => setForm({ ...form, name: e.target.value, slug: slugify(e.target.value) })} />
           </Field>
           <Field label="Slug">
-            <input className={inputClass} required pattern="[a-z0-9-]+" value={form.slug}
+            <input className={inputClass} required pattern="[a-z0-9\-]+" value={form.slug}
                    onChange={(e) => setForm({ ...form, slug: e.target.value })} />
           </Field>
           <Field label="Contact email">

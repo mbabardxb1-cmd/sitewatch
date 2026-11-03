@@ -38,7 +38,6 @@ class Settings(BaseSettings):
     # Background jobs
     celery_eager: bool = False  # run tasks inline (tests only)
     dispatch_interval_s: float = 15.0
-    uptime_check_retention_days: int = 400  # raw checks; hourly rollups are kept indefinitely
 
     # Uptime monitoring
     retry_delay_s: int = 30  # delay between retries of a failed check before confirming an outage
@@ -56,6 +55,13 @@ class Settings(BaseSettings):
     domain_alert_days: list[int] = [60, 30, 14, 7]
     hosting_alert_days: list[int] = [60, 30, 14, 7]
     ssl_alert_days: list[int] = [30, 14, 7, 3, 1]
+
+    # Observability
+    log_level: str = "INFO"
+    log_format: str = "json"  # json | text
+    sentry_dsn: str = ""  # optional error monitoring (requires the [sentry] extra)
+    sentry_environment: str = ""
+    sentry_traces_sample_rate: float = 0.0
 
     # Files (report PDFs, uploaded logo). Must be persistent storage (a volume in Docker).
     storage_dir: str = "./storage"

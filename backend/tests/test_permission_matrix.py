@@ -153,6 +153,9 @@ ROUTES = {
     ("POST", "/api/v1/websites/{website_id}/maintenance"): (["maintenance.write"], True, J(lambda w: {
         "performed_at": datetime.now(UTC).date().isoformat(), "title": "Work"})),
     ("DELETE", "/api/v1/websites/{website_id}/maintenance/{activity_id}"): (["maintenance.write"], True, None),
+    ("GET", "/api/v1/settings/system"): (["settings.manage"], False, None),
+    ("PUT", "/api/v1/settings/system"): (["settings.manage"], False, J({"report_generation_day": 3})),
+    ("GET", "/api/v1/settings/audit-log"): (["settings.manage"], False, None),
     ("GET", "/api/v1/settings/branding"): (["settings.manage"], False, None),
     ("PUT", "/api/v1/settings/branding"): (["settings.manage"], False, J({"company_name": "Agency"})),
     ("POST", "/api/v1/settings/branding/logo"): (["settings.manage"], False,

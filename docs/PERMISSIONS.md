@@ -68,7 +68,7 @@ Extra rules on top of the matrix:
 `backend/tests/test_permission_matrix.py`:
 - **Completeness:** every API route must be classified in the matrix, or the test fails (so
   new endpoints can't skip review).
-- **Matrix:** every route (78) is called by six actors: anonymous, client of tenant A, client of
+- **Matrix:** every route (81) is called by six actors: anonymous, client of tenant A, client of
   tenant B, unassigned developer, assigned developer and super admin, with valid request bodies
   so validation can't mask authorization. The expected result is derived from the role
   catalogue: 401 / 403 / 404 / allowed. 5xx is never accepted.
