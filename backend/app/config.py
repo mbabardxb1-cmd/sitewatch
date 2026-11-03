@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     max_check_gap_factor: float = 2.5  # gaps longer than interval x factor count as "unknown" time
     check_now_cooldown_s: int = 30
 
+    # Domain / hosting / SSL expiry
+    rdap_bootstrap_url: str = "https://data.iana.org/rdap/dns.json"
+    whois_enabled: bool = True  # port-43 WHOIS fallback for TLDs without RDAP; see docs on terms of use
+    whois_server_iana: str = "whois.iana.org"
+    whois_port: int = 43
+    domain_alert_days: list[int] = [60, 30, 14, 7]
+    hosting_alert_days: list[int] = [60, 30, 14, 7]
+    ssl_alert_days: list[int] = [30, 14, 7, 3, 1]
+
     # Email (SMTP). Leave SMTP_HOST empty to disable sending (notifications are logged as failed).
     notifier_backend: str = "smtp"  # smtp | memory (tests)
     smtp_host: str = ""

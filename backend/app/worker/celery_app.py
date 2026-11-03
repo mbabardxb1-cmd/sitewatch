@@ -37,6 +37,8 @@ celery.conf.update(
         "hourly-rollup": {"task": "app.worker.tasks.rollup_metrics", "schedule": crontab(minute=5)},
         "daily-retention": {"task": "app.worker.tasks.purge_old_checks", "schedule": crontab(hour=3, minute=17)},
         "schedule-monthly-audits": {"task": "app.worker.tasks.schedule_audits", "schedule": crontab(minute=23)},
+        "refresh-expiry-data": {"task": "app.worker.tasks.refresh_expiry", "schedule": crontab(minute=41)},
+        "expiry-alerts": {"task": "app.worker.tasks.expiry_alerts", "schedule": crontab(minute=47)},
         "fail-stuck-audits": {"task": "app.worker.tasks.fail_stuck_audits", "schedule": crontab(minute="*/30")},
         "requeue-stuck-notifications": {"task": "app.worker.tasks.requeue_pending_notifications",
                                         "schedule": crontab(minute="*/10")},

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import audits, auth, clients, dashboard, health, monitoring, notifications, users, websites
+from app.api.v1 import audits, auth, clients, dashboard, expiry, health, monitoring, notifications, users, websites
 from app.config import get_settings
 
 log = logging.getLogger("sitewatch")
@@ -40,7 +40,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, prefix="/api")
     for r in (auth.router, users.router, clients.router, websites.router, dashboard.router, monitoring.router,
-              notifications.router, audits.router):
+              notifications.router, audits.router, expiry.router):
         app.include_router(r, prefix="/api/v1")
     return app
 

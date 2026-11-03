@@ -175,3 +175,24 @@ def fail_stuck_audits() -> int:
 
     with SessionLocal() as db:
         return fail_stuck_runs(db)
+
+
+# ---- Domain / hosting / SSL expiry ---------------------------------------------------------
+
+@celery.task(soft_time_limit=50 * 60, time_limit=55 * 60)
+def refresh_expiry() -> dict:
+    from app.expiry.service import refresh_due
+
+    with SessionLocal() as db:
+        return refresh_due(db)
+
+
+@celery.task
+def expiry_alerts() -> int:
+    from app.expiry.service import send_expiry_alerts
+
+    with SessionLocal() as db:
+        ids = send_expiry_alerts(db)
+    for i in ids:
+        send_notification.delay(i)
+    return len(ids)

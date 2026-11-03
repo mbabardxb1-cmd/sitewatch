@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, ErrorNote, HealthCell } from "@/components/ui";
+import { ExpiryCard } from "@/components/ExpiryCard";
 import { MonitoringPanel } from "@/components/MonitoringPanel";
 import { WebsiteAuditCard } from "@/components/WebsiteAuditCard";
 import { CrawlConfigForm, MonitoringFields, type MonitoringValues } from "@/components/WebsiteForms";
@@ -91,6 +92,8 @@ export default function WebsiteDetailPage() {
       <MonitoringPanel websiteId={site.id} degradedMs={staff?.degraded_threshold_ms} archived={site.status === "archived"} />
 
       <WebsiteAuditCard websiteId={site.id} auditDay={staff?.audit_day_of_month} archived={site.status === "archived"} />
+
+      <ExpiryCard websiteId={site.id} />
 
       {staff && <MonitoringCard site={staff} writable={writable} onSaved={setSite} />}
       {staff && (

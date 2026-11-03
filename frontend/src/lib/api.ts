@@ -346,3 +346,69 @@ export type IssueRow = {
 };
 
 export type IssueComment = { id: string; author_email: string | null; body: string; created_at: string };
+
+export type ExpiryLevel = "healthy" | "warning" | "critical" | "unknown";
+export type EffectiveDate = {
+  date: string | null;
+  days_left: number | null;
+  source: string;
+  as_of: string | null;
+  note: string | null;
+  level: ExpiryLevel;
+};
+
+export type ExpiryOverviewRow = {
+  website_id: string;
+  website_name: string;
+  base_url: string;
+  client_name: string;
+  domain: { domain: string | null; registrar: string | null; lookup_status?: string | null } & EffectiveDate;
+  hosting: { provider: string | null } & EffectiveDate;
+  ssl: { applicable: boolean; issuer: string | null; valid: boolean | null } & EffectiveDate;
+};
+
+export type DomainView = {
+  domain: string | null;
+  registrar: string | null;
+  effective: EffectiveDate;
+  domain_overridden?: boolean;
+  registrar_url?: string | null;
+  nameservers?: string[];
+  registered_at?: string | null;
+  lookup?: { status: string; source: string | null; expires_at: string | null; verified_at: string | null; last_checked_at: string | null; last_error: string | null } | null;
+  manual?: { expires_at: string | null; registrar: string | null; entered_by: string | null; entered_at: string | null } | null;
+};
+
+export type HostingView = {
+  provider: string | null;
+  effective: EffectiveDate;
+  plan?: string | null;
+  account_reference?: string | null;
+  renewal_date?: string | null;
+  source?: string | null;
+  verified_at?: string | null;
+  entered_by?: string | null;
+  entered_at?: string | null;
+  integration?: { id: string; name: string; provider_key: string } | null;
+  internal_notes?: string | null;
+};
+
+export type SslView = {
+  applicable: boolean;
+  reason?: string;
+  effective: EffectiveDate;
+  valid?: boolean | null;
+  issuer?: string | null;
+  subject?: string | null;
+  san?: string[];
+  not_after?: string | null;
+  validation_error?: string | null;
+  last_attempt?: { checked_at: string; check_error: string | null } | null;
+  history?: { checked_at: string; valid: boolean | null; not_after: string | null; issuer: string | null; check_error: string | null }[];
+};
+
+export type WebsiteExpiry = { domain: DomainView; hosting: HostingView; ssl: SslView };
+
+export function fmtDay(v: string | null | undefined): string {
+  return v ? new Date(v + (v.length === 10 ? "T00:00:00" : "")).toLocaleDateString() : "—";
+}

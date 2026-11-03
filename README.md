@@ -3,9 +3,10 @@
 Website uptime monitoring, technical audits, expiry tracking and monthly maintenance reports
 for agencies managing many client websites.
 
-> **Build status: Phase 4 of 8 complete** — authentication and role-based access, tenant
+> **Build status: Phase 5 of 8 complete** — authentication and role-based access, tenant
 > isolation, client and website management, background uptime monitoring with incidents and
-> email alerts, and monthly technical audits with issue tracking.
+> email alerts, monthly technical audits with issue tracking, and domain/hosting/SSL expiry
+> monitoring.
 > See [docs/PROPOSAL.md](docs/PROPOSAL.md) for the architecture and phase plan, and
 > [docs/PHASES.md](docs/PHASES.md) for what each phase delivered.
 
@@ -128,6 +129,30 @@ site will be reported as downtime.
   mark "fixed – awaiting verification", but cannot set "resolved" themselves.
 - **Exports:** CSV (protected against spreadsheet formula injection) and JSON with full coverage.
 
+## Domain, hosting and SSL expiry
+
+- **Domains:** the registrable domain is derived from the website URL using the bundled Public
+  Suffix List (e.g. `shop.example.co.uk` → `example.co.uk`), or set manually. It is looked up
+  through **RDAP** (via the IANA bootstrap file), with **WHOIS** (port 43) as a fallback for TLDs
+  without RDAP. Lookups are refreshed daily within 60 days of expiry, weekly otherwise, and
+  retried 6 hours after a failure.
+- **Manual dates** are stored separately from looked-up dates, so a lookup never overwrites what
+  a person typed. They are always labelled *Manual entry (not verified)*, and are used only while
+  no registry lookup has succeeded.
+- **Hosting:** renewal dates are entered manually unless a provider integration verifies them.
+  No provider integrations ship by default; see `app/expiry/hosting.py` for the adapter
+  interface. Provider credentials are encrypted with `ENCRYPTION_KEY` (Fernet) and never returned
+  by the API. Nothing recorded → **Unknown**.
+- **SSL:** certificates are checked daily (every 6 hours in the last 14 days) through the
+  SSRF-safe connector. A check that cannot connect is recorded as such and never replaces the
+  last real observation.
+- **Alerts:** domain and hosting at 60/30/14/7 days, SSL at 30/14/7/3/1 days, plus
+  "expired" and "certificate not valid". Thresholds can be overridden per website, client or
+  globally with a notification rule (`{"days_before": [...]}`). Each threshold alerts once per
+  expiry date; a renewal starts a new cycle.
+- **Clients** see expiry information only if an administrator enabled it for their organization,
+  and never see account references, internal notes or raw lookup data.
+
 ## Security model (implemented)
 
 - **Passwords**: argon2id; minimum 12 chars with mixed case and a digit; transparent rehash.
@@ -158,4 +183,6 @@ site will be reported as downtime.
 - **SMTP (required for alerts):** any provider; set the `SMTP_*` variables. Until it's configured,
   alerts are recorded with status "failed" ("SMTP is not configured"); nothing is silently lost.
   For local development, `docker compose --profile dev up` starts Mailpit to catch emails.
-- Optional later: registrar or hosting API credentials (phase 5).
+- **Outbound access for expiry lookups:** the server must reach `data.iana.org` and the RDAP
+  servers it lists (HTTPS), and WHOIS servers on TCP port 43 for TLDs without RDAP.
+- Optional: hosting provider API credentials, once a provider adapter is added.

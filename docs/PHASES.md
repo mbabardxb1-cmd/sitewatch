@@ -238,3 +238,72 @@
   added later as an optional renderer.
 - Per-audit caps: 300 external links, 500 images, 100 extra sitemap URLs, 1000 findings per
   check (all reported when hit).
+
+## Phase 5 — Domain, hosting and SSL expiry monitoring ✅
+
+**Delivered**
+- **Domain lookups** (`app/expiry/lookup.py`):
+  - registrable domain from the bundled Public Suffix List (`tldextract`, no runtime downloads);
+  - RDAP via the IANA bootstrap (cached 24 h), parsed per RFC 9083 (expiration/registration
+    events, registrar vCard, nameservers);
+  - WHOIS fallback over port 43 (IANA referral, then the TLD server) only when RDAP has no
+    service or no expiry date; partial RDAP facts are kept;
+  - "not registered" is detected for both RDAP and WHOIS.
+  - Every connection goes through the SSRF guard.
+- **Effective dates** (`app/expiry/service.py`):
+  - Domain: the lookup's date (with source and "last verified"); else the manual entry; else
+    Unknown. A failed refresh keeps the last verified value, with a note. Manual entries live in
+    separate columns and are never overwritten by lookups.
+  - Hosting: API-verified, else Manual, else Unknown. A person typing a date always makes it
+    Manual.
+  - SSL: the latest completed check; "could not connect" attempts are recorded but don't
+    replace it.
+- **Hosting adapters** (`app/expiry/hosting.py`): a provider interface and registry, with
+  Fernet-encrypted credentials. No providers are installed, as decided; the API says so and
+  points to manual dates.
+- **Schedules:** an hourly refresh of what's due (domains daily near expiry or weekly; failed
+  lookups retried after 6 h; SSL daily, or every 6 h near expiry; hosting APIs daily) and hourly
+  alerts.
+- **Alerts:** each threshold fires once per expiry date (only the tightest one crossed), plus
+  "expired" and "certificate not valid". Thresholds can be overridden by notification rules
+  (website > client > global). Emails state the source (e.g. "entered manually (not verified)").
+- **API:**
+  - `/expiry/overview` and `/websites/{id}/expiry`.
+  - `PUT /websites/{id}/domain` (domain override, manual date and registrar) and
+    `/domain/refresh`.
+  - `PUT /websites/{id}/hosting` and `/hosting/refresh`; `/ssl/refresh`.
+  - `/integrations/hosting` (admin; credentials never returned).
+  - Refreshes are rate-limited. Clients get only effective dates, and only when enabled for
+    their organization.
+- **UI:**
+  - Domain & Hosting page (soonest first, source badges, Unknown with reasons).
+  - SSL Certificates page (invalid first).
+  - Website page: expiry section with lookup details, a manual-entry form, a hosting form,
+    "check now" buttons and certificate history (staff); read-only for clients.
+- **Migration 0004:** lookup verification time, domain override, manual fields, hosting entry
+  time, SSL check errors.
+
+**Verification**
+- `pytest`: 216 tests passing (31 new):
+  - RDAP and WHOIS against local servers using the standard formats; bootstrap caching;
+    unregistered domains; RDAP without expiry; `.uk` via WHOIS only; WHOIS disabled; IP
+    addresses.
+  - A failed refresh keeps verified data; manual entries are separate; a domain override resets
+    the lookup.
+  - Alerts: 25 days left gives one "30" alert, then 13 days gives "14", then expired; a renewal
+    restarts the cycle; rule overrides; manual hosting is labelled unverified.
+  - SSL: an invalid certificate alerts once; a failed check doesn't erase the last result.
+  - Scheduling rate limits; an encrypted provider round trip with a test adapter; missing
+    `ENCRYPTION_KEY` → 503.
+  - Client visibility on/off, with no account reference, notes or lookup data in client
+    responses; write permissions.
+- **Live run** with the real worker: `refresh_expiry` looked up 4 domains and 2 certificates.
+  Of 3 alerts, 3 were sent, and an immediate second run sent 0. The browser showed source badges
+  and Unknown states; the client view had no edit controls and no sensitive fields.
+
+**Not verified here: the public registries.** This sandbox's network policy blocks
+`data.iana.org` and the RDAP servers, so the live run used local stand-ins at
+`127.0.0.1:8093` (RDAP) and `:8043` (WHOIS), configured through `RDAP_BOOTSTRAP_URL`,
+`WHOIS_SERVER_IANA` and `WHOIS_PORT`. The demo registrar is named "Stand-in Registrar (local
+demo)". Real lookups need outbound HTTPS to `data.iana.org` and RDAP servers, and TCP 43 for
+WHOIS, in the production environment.
