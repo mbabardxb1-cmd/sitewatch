@@ -3,10 +3,11 @@
 Website uptime monitoring, technical audits, expiry tracking and monthly maintenance reports
 for agencies managing many client websites.
 
-> **Build status: Phase 6 of 8 complete** — authentication and role-based access, tenant
+> **Build status: Phase 7 of 8 complete** — authentication and role-based access, tenant
 > isolation, client and website management, background uptime monitoring with incidents and
 > email alerts, monthly technical audits with issue tracking, domain/hosting/SSL expiry
-> monitoring, and automated monthly PDF reports.
+> monitoring, automated monthly PDF reports, and a client dashboard with a full, automatically
+> enforced permission matrix (see [docs/PERMISSIONS.md](docs/PERMISSIONS.md)).
 > See [docs/PROPOSAL.md](docs/PROPOSAL.md) for the architecture and phase plan, and
 > [docs/PHASES.md](docs/PHASES.md) for what each phase delivered.
 

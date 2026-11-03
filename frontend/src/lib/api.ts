@@ -145,6 +145,11 @@ export type DashboardSummary = {
   monthly_uptime_note: string;
   active_incidents: number;
   websites: Website[];
+  uptime_30d: Record<string, number | null>;
+  open_issues: Record<string, Partial<Record<Severity, number>>>;
+  audit_state: Record<string, { last_audit_at: string | null; reached_site: boolean | null }>;
+  notices: { level: "critical" | "warning" | "info"; kind: string; website_id: string | null; website_name: string | null; text: string; link: string | null }[];
+  latest_reports: { website_id: string; report_id: string; period: string; kind: string; published: boolean; overall_level: Health | null }[];
 };
 
 export function fmtDate(v: string | null | undefined, empty = "Never"): string {

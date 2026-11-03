@@ -20,12 +20,34 @@ def is_client_user(user: User) -> bool:
     return CLIENT in user.role_keys
 
 
-def health_of(site: Website) -> tuple[str, str]:
+def _ago(delta) -> str:
+    mins = int(delta.total_seconds() // 60)
+    if mins < 120:
+        return f"{mins} min ago"
+    hours = mins // 60
+    return f"{hours} h ago" if hours < 48 else f"{hours // 24} days ago"
+
+
+def is_stale(site: Website, now: datetime | None = None) -> bool:
+    """An active site whose last check is older than 3 intervals (min. 15 min): the monitoring
+    result can no longer be presented as current."""
+    if site.status != "active" or site.last_checked_at is None:
+        return False
+    now = now or datetime.now(UTC)
+    return (now - site.last_checked_at).total_seconds() > max(900, 3 * site.check_interval_s)
+
+
+def health_of(site: Website, now: datetime | None = None) -> tuple[str, str]:
     """Map monitoring state to a display status plus the evidence behind it."""
     if site.status == "archived":
         return "unknown", "Archived — not monitored"
     if site.status == "paused":
         return "unknown", "Monitoring paused"
+    if is_stale(site, now):
+        ago = _ago((now or datetime.now(UTC)) - site.last_checked_at)
+        if site.current_state == "down":
+            return "critical", f"Outage confirmed; no checks since ({ago})"
+        return "unknown", f"No recent checks (last check {ago}); monitoring may be interrupted"
     return {
         "up": ("healthy", "Responding normally at the last check"),
         "degraded": ("warning", "Responding, but slower than the configured threshold"),

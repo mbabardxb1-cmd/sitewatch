@@ -384,3 +384,46 @@ WHOIS, in the production environment.
     PDF.
   - The scheduler correctly created 0 October reports (all websites were created in November).
   - Reviewing the live PDFs led to the wording fixes above, verified by regenerating.
+
+## Phase 7 — Client dashboard, permission testing and data isolation ✅
+
+**Delivered**
+- **Permission matrix test** (`tests/test_permission_matrix.py`): all 78 API routes × 6 actors
+  (anonymous, tenant-A client, tenant-B client, unassigned developer, assigned developer, super
+  admin) = 468 cases. Each expected outcome (401 / 403 / 404 / allowed) is derived from the role
+  catalogue. Plus:
+  - a completeness check (new routes must be classified);
+  - a leak scan (no tenant-A IDs, names or hostnames in any allowed response to outsiders);
+  - CSRF on all 38 state-changing routes;
+  - a staff-field scan of client payloads.
+- **Mutation-tested:** breaking the scope on an incident lookup, removing it from the incidents
+  list, and loosening the permission on raw checks were each detected.
+- **Client dashboard:**
+  - "Your websites" with plain-language important notices (outages, expiries if shared, serious
+    issues, newly published reports);
+  - a card per website with status and its reason, 30-day uptime, audit-aware issue summary and
+    the latest published report with download;
+  - responsive (no overflow at 390 px); refreshes every minute.
+- **Staff dashboard:** a "Needs attention" panel (outages with cause, expiries with
+  manual-entry marker, invalid SSL, serious issues, reports awaiting publication for admins,
+  overdue monitoring), plus uptime and open-issue columns.
+- **Honesty fixes found during review:**
+  - a stale "Healthy" status: active sites without a check for 3 intervals (minimum 15 min)
+    now show Unknown, "No recent checks…". A confirmed outage stays Critical, with "no checks
+    since…", so it is never hidden. Staff get an "uptime checks are overdue" notice and the
+    count tiles follow the same rule;
+  - "No open issues" is no longer shown without an audit: the dashboard says "No technical
+    audit has run yet" or "The last audit could not reach the website".
+- **docs/PERMISSIONS.md:** a permission table generated from the code, the decision order,
+  extra rules, how it is tested, and design decisions.
+
+**Verification**
+- `pytest`: 748 tests passing (516 new: the 468 matrix cases, 38 CSRF, completeness, client
+  payload, notices, stale-status and audit-state tests).
+- **Browser run:**
+  - Acme's client saw only Acme notices and cards; the Globex client saw nothing of Acme.
+  - Globex opening an Acme website URL showed "not found".
+  - Globex calling Acme's website, uptime, expiry, report download and issue endpoints got 404
+    each; filtering lists by Acme's ID returned empty lists; PATCH, `/audits` and `/users`
+    returned 403.
+  - No horizontal overflow on mobile.
