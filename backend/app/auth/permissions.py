@@ -49,7 +49,8 @@ PERMISSIONS: dict[str, str] = {
     "report.read": "View and download approved client reports",
     "report.read_all": "View and download all reports including technical ones",
     "report.generate": "Generate reports manually",
-    "report.approve": "Approve reports for client access",
+    "report.approve": "Approve reports for client access and email them",
+    "maintenance.write": "Record maintenance work performed",
 }
 
 ROLES: dict[str, tuple[str, set[str]]] = {
@@ -63,7 +64,7 @@ ROLES: dict[str, tuple[str, set[str]]] = {
             "audit.read_detailed", "audit.run", "audit.export",
             "issue.read_summary", "issue.read_detailed", "issue.manage", "issue.note.read", "issue.note.write",
             "expiry.read", "expiry.read_detailed", "expiry.write",
-            "report.read", "report.read_all", "report.generate",
+            "report.read", "report.read_all", "report.generate", "maintenance.write",
         },
     ),
     CLIENT: (

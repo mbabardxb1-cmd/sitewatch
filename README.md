@@ -3,10 +3,10 @@
 Website uptime monitoring, technical audits, expiry tracking and monthly maintenance reports
 for agencies managing many client websites.
 
-> **Build status: Phase 5 of 8 complete** — authentication and role-based access, tenant
+> **Build status: Phase 6 of 8 complete** — authentication and role-based access, tenant
 > isolation, client and website management, background uptime monitoring with incidents and
-> email alerts, monthly technical audits with issue tracking, and domain/hosting/SSL expiry
-> monitoring.
+> email alerts, monthly technical audits with issue tracking, domain/hosting/SSL expiry
+> monitoring, and automated monthly PDF reports.
 > See [docs/PROPOSAL.md](docs/PROPOSAL.md) for the architecture and phase plan, and
 > [docs/PHASES.md](docs/PHASES.md) for what each phase delivered.
 
@@ -18,7 +18,7 @@ for agencies managing many client websites.
 | API | FastAPI (Python 3.13), SQLAlchemy 2, Pydantic 2 |
 | Database | PostgreSQL 16, Alembic migrations |
 | Background jobs | Celery + Redis (worker + single beat scheduler) |
-| PDFs | ReportLab (from phase 6) |
+| PDFs | ReportLab (DejaVu fonts for Unicode) |
 
 ## Repository layout
 
@@ -152,6 +152,29 @@ site will be reported as downtime.
   expiry date; a renewal starts a new cycle.
 - **Clients** see expiry information only if an administrator enabled it for their organization,
   and never see account references, internal notes or raw lookup data.
+
+## Monthly PDF reports
+
+- **Two reports per website per month:** a *technical* report for the team and a *client*
+  report. They are generated automatically for the previous month once the configured day
+  arrives (setting `reports.generation_day`, default 2), and can also be generated on demand for
+  any past month or the current month so far.
+- **Client reports must be published** (by an administrator) before client users can see them;
+  they can be emailed to the website's recipients with the PDF attached. Regenerating a report
+  withdraws its publication.
+- **Contents:** cover with logo, website, period and generation date; overall status with the
+  reasons behind it; executive summary; (1) monitoring results — availability, outages, daily
+  response-time chart, audit results with check coverage, issues (new / fixed-and-verified /
+  recurring / outstanding), domain/hosting/SSL with sources; (2) maintenance work performed,
+  recorded separately by the team; (3) evidence-based recommendations; (4) comparison with the
+  previous month; (5) notes on method. Page numbers "Page X of Y".
+- **Honesty rules:** missing data is stated as missing; "fixed" only means verified by a later
+  audit; an audit that could not reach the site says so instead of reporting "no issues";
+  client reports contain no internal notes, raw errors, incident causes or account references.
+- **Storage:** files live under `STORAGE_DIR`, written atomically, with a SHA-256 checksum
+  verified on download. Every download is recorded in the audit log.
+- **Branding:** company name, accent colour, footer text and logo (PNG/JPEG ≤ 1 MB, validated
+  and re-encoded) on the Reports page.
 
 ## Security model (implemented)
 

@@ -18,7 +18,7 @@ const NAV: NavItem[] = [
   { href: "/issues", label: "Issues", perm: "issue.read_summary" },
   { href: "/domains", label: "Domain & Hosting", perm: "expiry.read" },
   { href: "/ssl", label: "SSL Certificates", perm: "expiry.read" },
-  { href: "/reports", label: "Reports", perm: "report.read", phase: 6 },
+  { href: "/reports", label: "Reports", perm: "report.read" },
   { href: "/notifications", label: "Notifications", perm: "notification.read" },
   { href: "/users", label: "Users & Permissions", perm: "user.manage" },
   { href: "/settings", label: "Settings", perm: "settings.manage", phase: 8 },

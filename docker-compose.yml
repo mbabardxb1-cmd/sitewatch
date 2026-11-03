@@ -29,6 +29,8 @@ services:
   api:
     build: ./backend
     env_file: .env
+    environment: { STORAGE_DIR: /data }
+    volumes: [appdata:/data]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -40,6 +42,8 @@ services:
   worker:
     build: ./backend
     env_file: .env
+    environment: { STORAGE_DIR: /data }
+    volumes: [appdata:/data]
     command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "uptime,notify,default",
               "--concurrency", "8", "-l", "info"]
     depends_on:
@@ -51,6 +55,8 @@ services:
   worker-audit:
     build: ./backend
     env_file: .env
+    environment: { STORAGE_DIR: /data }
+    volumes: [appdata:/data]
     command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "audit", "--concurrency", "2", "-l", "info"]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -85,3 +91,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  appdata:   # report PDFs and uploaded logo - include in backups

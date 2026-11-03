@@ -47,6 +47,8 @@ class NotificationLog(Base):
     recipients: Mapped[list[str]] = mapped_column(ARRAY(String(320)), default=list)
     subject: Mapped[str | None] = mapped_column(String(500))
     body: Mapped[str | None] = mapped_column(Text)
+    # When set, the email carries this report's PDF as an attachment.
+    attachment_report_id: Mapped[uuid.UUID | None] = mapped_column(fk("monthly_reports.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(str_enum("pending", "sent", "failed", "suppressed", name="notification_status"))
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=sa.func.now())
@@ -72,6 +74,25 @@ class MonthlyReport(UUIDPk, Timestamps, Base):
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     data_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
+    generation_count: Mapped[int] = mapped_column(default=0)
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    emailed_to: Mapped[list[str]] = mapped_column(ARRAY(String(320)), default=list)
+
+
+class MaintenanceActivity(UUIDPk, Timestamps, Base):
+    """Maintenance work a person actually performed (as opposed to what monitoring observed)."""
+
+    __tablename__ = "maintenance_activities"
+    __table_args__ = (sa.Index("ix_maintenance_site_time", "website_id", "performed_at"),)
+    website_id: Mapped[uuid.UUID] = mapped_column(fk("websites.id"))
+    performed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    title: Mapped[str] = mapped_column(String(300))
+    description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(str_enum("update", "fix", "security", "content", "performance", "backup",
+                                                   "other", name="maintenance_category"), default="other")
+    visible_to_client: Mapped[bool] = mapped_column(default=True)
+    issue_id: Mapped[uuid.UUID | None] = mapped_column(fk("issues.id", ondelete="SET NULL"))
+    performed_by: Mapped[uuid.UUID | None] = mapped_column(fk("users.id", ondelete="SET NULL"))
 
 
 class SystemSetting(Base):

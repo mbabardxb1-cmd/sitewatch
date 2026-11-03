@@ -84,7 +84,12 @@ def send_notification(self, log_id: int) -> str:
         if entry is None or entry.status != "pending":
             return "skipped"
         try:
-            get_notifier(entry.channel).send(entry.recipients, entry.subject or "", entry.body or "")
+            attachments = None
+            if entry.attachment_report_id:
+                from app.reports.service import report_attachment
+
+                attachments = [report_attachment(db, entry.attachment_report_id)]
+            get_notifier(entry.channel).send(entry.recipients, entry.subject or "", entry.body or "", attachments)
         except NotifierError as e:
             entry.error = str(e)[:1000]
             if self.request.retries >= self.max_retries or get_settings().celery_eager:
@@ -195,4 +200,26 @@ def expiry_alerts() -> int:
         ids = send_expiry_alerts(db)
     for i in ids:
         send_notification.delay(i)
+    return len(ids)
+
+
+# ---- Monthly reports ------------------------------------------------------------------------
+
+@celery.task(soft_time_limit=600, time_limit=660)
+def generate_report(report_id: str) -> str | None:
+    from app.reports.service import generate
+
+    with SessionLocal() as db:
+        r = generate(db, uuid.UUID(report_id))
+        return r.status if r else None
+
+
+@celery.task
+def schedule_reports() -> int:
+    from app.reports.service import schedule_monthly
+
+    with SessionLocal() as db:
+        ids = schedule_monthly(db)
+    for rid in ids:
+        generate_report.delay(str(rid))
     return len(ids)

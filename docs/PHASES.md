@@ -307,3 +307,80 @@
 `WHOIS_SERVER_IANA` and `WHOIS_PORT`. The demo registrar is named "Stand-in Registrar (local
 demo)". Real lookups need outbound HTTPS to `data.iana.org` and RDAP servers, and TCP 43 for
 WHOIS, in the production environment.
+
+## Phase 6 — Automated monthly PDF reports ✅
+
+**Delivered**
+- **Snapshot-based reports** (`app/reports/data.py`): every fact is assembled once into a JSON
+  snapshot stored with the report, and the PDF is rendered only from it. The snapshot covers:
+  - uptime this month and last, outages, monitoring coverage;
+  - daily response times (falling back to hourly rollups);
+  - the latest audit with grouped coverage limitations;
+  - issues: new, fixed (verified), recurring and outstanding;
+  - domain, hosting and SSL with their sources;
+  - maintenance work.
+  The overall status is a label with listed reasons, and recommendations each cite their
+  evidence.
+- **PDF** (`app/reports/pdf.py`, ReportLab):
+  - logo, branded header and footer, "Page X of Y";
+  - status box with a text label, tables and severity labels;
+  - a single-series daily response chart;
+  - sections in order: monitoring results, maintenance performed, recommendations, comparison
+    with the previous month, method notes.
+  All crawled or user text is escaped; DejaVu fonts give full Unicode, with a safe fallback.
+- **Client vs technical reports:** client reports omit incident causes, internal maintenance,
+  informational issues, URLs, account references and raw errors (replaced with plain wording).
+  Expiry details are included only if enabled for the client organization.
+- **Honesty fixes found during review:**
+  - downtime is described as "observed while monitoring was running" when coverage is partial;
+  - an audit that couldn't reach the site says so, and never reports "no issues";
+  - an ongoing outage is called out;
+  - identical coverage limitations are grouped.
+- **Lifecycle** (`app/reports/service.py`):
+  - unique (website, period, kind) rows; the scheduler is idempotent from the configured day
+    and skips websites created after the period;
+  - generation locks the row (`SKIP LOCKED`) and writes atomically with a SHA-256 checksum
+    verified on download; storage paths are confined;
+  - regenerating replaces the file and withdraws client approval;
+  - stuck rows are re-sent.
+- **Publishing and email:** administrators publish client reports, optionally emailing them to
+  the website's recipients with the PDF attached (`attachment_report_id` on the notification
+  log). The same generation is never emailed twice.
+- **Maintenance log:** a `maintenance_activities` table, the `maintenance.write` permission, and
+  an API (no future dates; issue links must be on the same website); entries are visible to the
+  client or internal.
+- **Branding:** company name, accent colour and footer via `/settings/branding`. Logo upload
+  checks PNG/JPEG, ≤ 1 MB and a size limit, then re-encodes it with Pillow (SVG and GIF are
+  refused).
+- **UI:**
+  - Reports page: generate, history with status, download, publish / publish & email /
+    withdraw; branding for admins.
+  - Website page: reports list and maintenance log.
+  - Client view: published reports only.
+- **Migration 0005:** maintenance table, report email fields, attachment link, permission sync.
+  The Docker image installs `fonts-dejavu-core`, and the `appdata` volume holds the files.
+
+**Verification**
+- `pytest`: 232 tests passing (16 new), against two months of 5-minute checks with an outage:
+  - Exact uptime (99.73%), previous-month comparison, audit, issues, expiry sources,
+    recommendations and summary.
+  - Client omissions; missing data stated as missing.
+  - PDF text extraction: every section, page numbers, footer and branding; escaped markup; the
+    logo embedded as an image.
+  - Generation, conflict and regeneration (approval withdrawn, file replaced).
+  - Access matrix: client sees approved client reports only; technical reports never reach
+    clients; unassigned developer → 404; only admins publish.
+  - Checksum tampering → 409; email attachment and de-duplication; scheduler idempotency and
+    exclusions.
+  - Concurrent generation (second worker skips); path traversal; maintenance and branding
+    validation; the unreachable-site wording.
+- **Live run** with the real worker and SMTP server:
+  - A developer logged two maintenance entries (one internal). The admin set branding and a
+    logo, generated both reports in the browser, downloaded the technical PDF, and used
+    "publish & email".
+  - The SMTP server received one email with `www.example.com-2026-11-client-report.pdf`
+    attached.
+  - The client saw only the client report. The internal entry appeared only in the technical
+    PDF.
+  - The scheduler correctly created 0 October reports (all websites were created in November).
+  - Reviewing the live PDFs led to the wording fixes above, verified by regenerating.

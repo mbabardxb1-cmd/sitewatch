@@ -7,6 +7,7 @@ import { Button, Card, ErrorNote, HealthCell } from "@/components/ui";
 import { ExpiryCard } from "@/components/ExpiryCard";
 import { MonitoringPanel } from "@/components/MonitoringPanel";
 import { WebsiteAuditCard } from "@/components/WebsiteAuditCard";
+import { WebsiteReportsCard } from "@/components/WebsiteReportsCard";
 import { CrawlConfigForm, MonitoringFields, type MonitoringValues } from "@/components/WebsiteForms";
 import { ApiError, api, fmtDate, isStaffView, type UserRow, type Website, type WebsiteStaff } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -94,6 +95,8 @@ export default function WebsiteDetailPage() {
       <WebsiteAuditCard websiteId={site.id} auditDay={staff?.audit_day_of_month} archived={site.status === "archived"} />
 
       <ExpiryCard websiteId={site.id} />
+
+      <WebsiteReportsCard websiteId={site.id} />
 
       {staff && <MonitoringCard site={staff} writable={writable} onSaved={setSite} />}
       {staff && (

@@ -412,3 +412,47 @@ export type WebsiteExpiry = { domain: DomainView; hosting: HostingView; ssl: Ssl
 export function fmtDay(v: string | null | undefined): string {
   return v ? new Date(v + (v.length === 10 ? "T00:00:00" : "")).toLocaleDateString() : "—";
 }
+
+export type ReportRow = {
+  id: string;
+  website_id: string;
+  website_name: string;
+  period: string;
+  kind: "client" | "technical";
+  status: "generating" | "ready" | "failed";
+  overall_level: "healthy" | "warning" | "critical" | "unknown" | null;
+  generated_at: string | null;
+  size_bytes: number | null;
+  approved_for_client: boolean;
+  approved_at?: string | null;
+  emailed_at?: string | null;
+  emailed_to?: string[];
+  error?: string | null;
+  generation_count?: number;
+};
+
+export type MaintenanceRow = {
+  id: string;
+  performed_at: string;
+  title: string;
+  description: string | null;
+  category: string;
+  visible_to_client: boolean;
+  issue_id: string | null;
+  performed_by_email: string | null;
+};
+
+export function periodLabel(p: string): string {
+  const [y, m] = p.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+export function lastMonths(n: number): string[] {
+  const out: string[] = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1));
+    out.push(`${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return out;
+}

@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     hosting_alert_days: list[int] = [60, 30, 14, 7]
     ssl_alert_days: list[int] = [30, 14, 7, 3, 1]
 
+    # Files (report PDFs, uploaded logo). Must be persistent storage (a volume in Docker).
+    storage_dir: str = "./storage"
+
     # Email (SMTP). Leave SMTP_HOST empty to disable sending (notifications are logged as failed).
     notifier_backend: str = "smtp"  # smtp | memory (tests)
     smtp_host: str = ""
