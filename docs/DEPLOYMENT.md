@@ -14,7 +14,7 @@ Internet ──► Caddy (HTTPS, automatic certificates)
 
 | Item | Minimum | Notes |
 |---|---|---|
-| Server | 2 vCPU, 4 GB RAM, 40 GB disk | For about 100 websites. Crawls and PDFs run on `worker-audit`. |
+| Server | 1 vCPU, 4 GB RAM, 40 GB disk (set `WORKER_CONCURRENCY=4`) | Measured: about 2 GB RAM with default settings. Comfortable for ~100 websites; use 2+ vCPU / 8 GB for more. |
 | OS | Any Linux with Docker Engine 24+ and the Compose plugin | Tested with Docker 29. |
 | DNS | An A/AAAA record (e.g. `monitor.your-agency.example`) pointing to the server | Needed before the first start so Caddy can obtain a certificate. |
 | Firewall | Inbound 80/tcp, 443/tcp, 443/udp | Nothing else needs to be public. |

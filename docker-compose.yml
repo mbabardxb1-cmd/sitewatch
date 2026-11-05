@@ -65,7 +65,7 @@ services:
 
   worker:
     <<: *backend
-    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "uptime,notify,default", "--concurrency", "8", "-l", "info"]
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "uptime,notify,default", "--concurrency", "${WORKER_CONCURRENCY:-8}", "-l", "info"]
     volumes: [appdata:/data]
     depends_on:
       migrate: { condition: service_completed_successfully }
