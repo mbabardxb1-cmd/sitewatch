@@ -54,8 +54,8 @@ SEV_COLORS = {"critical": "#c62828", "high": "#d84315", "medium": "#b26a00", "lo
 SOURCE_LABEL = {"rdap": "Verified (RDAP)", "whois": "Verified (WHOIS)", "registrar_api": "Verified (registrar API)",
                 "api": "Verified (provider API)", "manual": "Manual entry - not verified", "certificate": "Live certificate",
                 "unknown": "Unknown"}
-DEFAULT_TITLE = "Website Maintenance Report"
-DEFAULT_INTRO = "Our maintenance contract keeps the website updated, secure and backed up every month."
+DEFAULT_TITLE = "AMC Monthly Report"
+DEFAULT_INTRO = "Our Annual Maintenance Contract keeps the website updated, clean and backed up every month."
 
 # Carlito is metrically identical to Calibri; DejaVu is the wide-coverage fallback.
 FONT_CANDIDATES = [
@@ -148,8 +148,10 @@ class _Styles:
         self.bold = bold
 
 
-def _table(rows, widths, s: _Styles, header=True, bold_col: int | None = None, align_right: tuple[int, ...] = ()):
-    """Brand table: black header with white text, light grey grid, roomy rows."""
+def _table(rows, widths, s: _Styles, header=True, bold_col: int | None = None, align_right: tuple[int, ...] = (),
+           task_table: bool = False):
+    """Brand table: black header with white text, light grey grid, roomy rows.
+    task_table: the larger type and row height of the maintenance task table."""
     data = []
     for i, row in enumerate(rows):
         out = []
@@ -158,6 +160,8 @@ def _table(rows, widths, s: _Styles, header=True, bold_col: int | None = None, a
                 out.append(c)
                 continue
             style = s.cell_h if (header and i == 0) else (s.cell_b if j == bold_col else s.cell)
+            if task_table:
+                style = ParagraphStyle(f"t{style.name}", parent=style, fontSize=14, leading=19)
             if j in align_right:
                 style = ParagraphStyle(f"r{style.name}", parent=style, alignment=2)
             out.append(Paragraph(c, style))
@@ -168,6 +172,10 @@ def _table(rows, widths, s: _Styles, header=True, bold_col: int | None = None, a
              ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10)]
     if header:
         style += [("BACKGROUND", (0, 0), (-1, 0), BLACK), ("LINEBELOW", (0, 0), (-1, 0), 0.75, BLACK)]
+    if task_table:
+        style += [("TOPPADDING", (0, 0), (-1, -1), 9), ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                  ("LEFTPADDING", (0, 0), (-1, -1), 12), ("TOPPADDING", (0, 0), (-1, 0), 12),
+                  ("BOTTOMPADDING", (0, 0), (-1, 0), 13)]
     tbl.setStyle(TableStyle(style))
     return tbl
 
@@ -348,10 +356,9 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
     if snap["maintenance"]:
         rows = [["#", "Task", "Details", "Status"]]
         for n, m in enumerate(snap["maintenance"], 1):
-            details = t(m.get("description") or m["category"])
-            rows.append([str(n), f"<b>{t(m['title'])}</b><br/><font size=10 color='#6b6b6b'>{_d(m['date'])}</font>",
-                         details, _done()])
-        story.append(_table(rows, [50, 260, CONTENT_W - 50 - 260 - 130, 130], s))
+            rows.append([str(n), f"<b>{t(m['title'])}</b>", t(m.get("description") or m["category"]), _done()])
+        w = [CONTENT_W * 0.057, CONTENT_W * 0.272, CONTENT_W * 0.523]
+        story.append(_table(rows, w + [CONTENT_W - sum(w)], s, task_table=True))
     else:
         story.append(Paragraph("No maintenance work was recorded for this period.", s.body))
 

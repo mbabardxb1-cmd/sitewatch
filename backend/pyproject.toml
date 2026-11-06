@@ -32,6 +32,9 @@ dev = ["pytest==9.2.0", "aiosmtpd==1.4.6", "pypdf==6.20.1"]
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+"app.reports" = ["assets/*.svg"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]

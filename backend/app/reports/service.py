@@ -62,11 +62,24 @@ def set_setting(db: Session, key: str, value, user_id=None) -> None:
         row.value, row.updated_by = value, user_id
 
 
+# The agency's own branding: used on every report unless an administrator changes it in Settings.
+DEFAULT_BRANDING = {
+    "company_name": "Brande",
+    "footer_text": "www.brande.ae",
+    "report_title": "AMC Monthly Report",
+    "maintenance_intro": "Our Annual Maintenance Contract keeps the website updated, clean and backed up every month.",
+    "accent_color": None,
+}
+DEFAULT_LOGO = Path(__file__).parent / "assets" / "brande-logo.svg"
+
+
 def branding(db: Session) -> dict:
-    return {k: get_setting(db, f"branding.{k}") for k in BRANDING_KEYS}
+    """Saved branding, with the agency defaults filling anything left empty."""
+    saved = {k: get_setting(db, f"branding.{k}") for k in BRANDING_KEYS}
+    return {k: (saved.get(k) or DEFAULT_BRANDING.get(k)) for k in BRANDING_KEYS}
 
 
-def logo_file(db: Session) -> str | None:
+def custom_logo_file(db: Session) -> str | None:
     rel = get_setting(db, "branding.logo_path")
     if not rel:
         return None
@@ -75,6 +88,11 @@ def logo_file(db: Session) -> str | None:
     except ReportError:
         return None
     return str(p) if p.exists() else None
+
+
+def logo_file(db: Session) -> str | None:
+    """The uploaded logo, or the built-in Brande logo."""
+    return custom_logo_file(db) or (str(DEFAULT_LOGO) if DEFAULT_LOGO.exists() else None)
 
 
 # ---- creation ---------------------------------------------------------------------------

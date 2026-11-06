@@ -248,8 +248,8 @@ BRANDING_FIELDS = ("company_name", "accent_color", "footer_text", "report_title"
 @router.get("/settings/branding")
 def get_branding(db: Session = Depends(get_db), _: User = Depends(require("settings.manage"))):
     b = rsvc.branding(db)
-    logo = rsvc.logo_file(db)
-    return {**{k: b.get(k) for k in BRANDING_FIELDS}, "has_logo": bool(logo),
+    logo = rsvc.custom_logo_file(db)
+    return {**{k: b.get(k) for k in BRANDING_FIELDS}, "has_logo": bool(logo), "using_default_logo": logo is None,
             "logo_type": ("svg" if logo.endswith(".svg") else "image") if logo else None}
 
 

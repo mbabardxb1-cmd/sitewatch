@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 type Branding = {
   company_name: string | null; accent_color: string | null; footer_text: string | null;
   report_title: string | null; maintenance_intro: string | null; has_logo: boolean; logo_type: "svg" | "image" | null;
+  using_default_logo: boolean;
 };
 
 export function BrandingCard() {
@@ -32,7 +33,7 @@ export function BrandingCard() {
   const set = (k: keyof Branding) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setB({ ...b, [k]: e.target.value });
 
   return (
-    <Card title="Report branding" description="Applies to PDF reports generated from now on. Existing reports keep their look.">
+    <Card title="Report branding" description="Reports use the Brande logo and wording below. Empty fields fall back to the Brande defaults. Changes apply to reports generated from now on.">
       <div className="space-y-4">
         <ErrorNote message={error} />
         {saved && <Notice tone="success">{saved}</Notice>}
@@ -70,8 +71,15 @@ export function BrandingCard() {
         </form>
         <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 text-sm">
           <span className="text-slate-700">
-            Logo: <strong>{b.has_logo ? (b.logo_type === "svg" ? "SVG uploaded" : "image uploaded") : "none"}</strong>
+            Logo: <strong>{b.using_default_logo ? "Brande (built in)" : b.logo_type === "svg" ? "uploaded SVG" : "uploaded image"}</strong>
           </span>
+          {!b.using_default_logo && (
+            <Button variant="secondary" onClick={async () => {
+              await api("/settings/branding/logo", { method: "DELETE" }).catch((e) => setError(e.message));
+              setSaved("Using the built-in Brande logo again.");
+              load();
+            }}>Use Brande logo</Button>
+          )}
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50">
             <Upload size={16} />Upload SVG, PNG or JPEG (max 1 MB)
             <input type="file" accept="image/svg+xml,.svg,image/png,image/jpeg" className="hidden"

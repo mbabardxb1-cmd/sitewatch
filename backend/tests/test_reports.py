@@ -175,7 +175,7 @@ def test_pdf_content_and_structure(db, site):
 def test_client_pdf_has_no_technical_details(db, site):
     txt = text_of(render_pdf(build_snapshot(db, site, PERIOD, "client", now=NOW)))
     assert "Unexpected HTTP 503" not in txt and "Rotated DB password" not in txt and "No robots.txt" not in txt
-    assert "Website Maintenance Report" in txt and "Technical edition" not in txt
+    assert "AMC Monthly Report" in txt and "Technical edition" not in txt
 
 
 def test_logo_is_embedded(db, site, as_user):
@@ -423,3 +423,23 @@ def test_branding_preview(db, site, as_user):
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
     assert "AMC Monthly Report" in text_of(r.content) and "www.brande.ae" in text_of(r.content)
     assert as_user("developer").get("/api/v1/settings/branding/preview").status_code == 403
+
+
+def test_brande_branding_is_the_default(db, site, as_user):
+    admin = as_user("super_admin")
+    b = admin.get("/api/v1/settings/branding").json()
+    assert b["company_name"] == "Brande" and b["footer_text"] == "www.brande.ae" and b["report_title"] == "AMC Monthly Report"
+    assert b["using_default_logo"] is True and rsvc.logo_file(db).endswith("brande-logo.svg")
+    site.client.show_expiry_to_client = True
+    db.commit()
+    snap = build_snapshot(db, site, PERIOD, "client", now=NOW, branding=rsvc.branding(db))
+    pdf = render_pdf(snap, rsvc.logo_file(db))
+    reader = PdfReader(io.BytesIO(pdf))
+    txt = text_of(pdf)
+    assert "AMC Monthly Report" in txt and "www.brande.ae" in txt and "Our Annual Maintenance Contract" in txt
+    # the Brande wordmark is drawn as vector paths (white on the cover, black on content pages)
+    assert b"1 1 1 rg" in reader.pages[0].get_contents().get_data()
+    assert not reader.pages[0].images
+    # an empty field falls back to the default instead of disappearing
+    admin.put("/api/v1/settings/branding", json={"report_title": ""})
+    assert admin.get("/api/v1/settings/branding").json()["report_title"] == "AMC Monthly Report"
