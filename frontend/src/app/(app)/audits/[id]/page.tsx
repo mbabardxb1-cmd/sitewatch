@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { RunStatus } from "@/components/AuditBits";
-import { Card, CertaintyLabel, CoverageBadge, ErrorNote, SeverityBadge, Stat, inputClass } from "@/components/ui";
+import { AUDIT_CATEGORIES, CATEGORY_LABEL } from "@/components/AuditLauncher";
+import { AuditProgressCard } from "@/components/AuditProgress";
+import { Card, CertaintyLabel, CoverageBadge, ErrorNote, Notice, SeverityBadge, Stat, inputClass } from "@/components/ui";
 import {
   ApiError, api, fmtDate, SEVERITIES,
   type AuditCompare, type AuditDetail, type AuditFinding, type CompareIssue,
@@ -50,7 +52,7 @@ export default function AuditDetailPage() {
     load();
     const t = setInterval(() => {
       load().then((r) => { if (r && !(r.status === "queued" || r.status === "running")) clearInterval(t); });
-    }, 5000);
+    }, 3000);
     return () => clearInterval(t);
   }, [id]);
 
@@ -67,8 +69,8 @@ export default function AuditDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link href="/audits" className="text-sm text-slate-500 hover:underline">← Technical Audits</Link>
-          <h1 className="text-xl font-semibold">{run.website_name}: {run.trigger === "scheduled" ? `monthly audit ${run.period}` : "manual audit"}</h1>
+          <Link href="/audits" className="text-sm font-medium text-brand-600 hover:text-brand-500">← Technical Audits</Link>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{run.website_name}: {run.trigger === "scheduled" ? `monthly audit ${run.period}` : "manual audit"}</h1>
           <p className="text-sm text-slate-600">
             <RunStatus run={run} /> · started {fmtDate(run.started_at, "—")} · finished {fmtDate(run.finished_at, "—")}
             {s.duration_s !== undefined && ` · ${s.duration_s}s, ${s.requests} requests`}
@@ -77,20 +79,21 @@ export default function AuditDetailPage() {
         </div>
         {done && can("audit.export") && (
           <div className="flex gap-2">
-            <a className="rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50" href={`/api/v1/audits/${id}/export?format=csv`}>Export CSV</a>
-            <a className="rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50" href={`/api/v1/audits/${id}/export?format=json`}>Export JSON</a>
+            <a className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50" href={`/api/v1/audits/${id}/export?format=csv`}>Export CSV</a>
+            <a className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50" href={`/api/v1/audits/${id}/export?format=json`}>Export JSON</a>
           </div>
         )}
       </div>
 
       {run.status === "failed" && <ErrorNote message={`The audit failed: ${run.error}`} />}
-      {(run.status === "queued" || run.status === "running") && (
-        <p className="rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-900">This audit is {run.status}. The page refreshes automatically.</p>
+      {(run.status === "queued" || run.status === "running") && <AuditProgressCard run={run} />}
+      {run.categories && (
+        <Notice>This audit covered only: <strong>{run.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(", ")}</strong>. Other checks were skipped and none of their issues were changed.</Notice>
       )}
       {run.status === "partial" && (
-        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <Notice tone="warning">
           Partial audit: some checks were limited or could not run. See “Check coverage” for exactly what was and wasn’t checked.
-        </p>
+        </Notice>
       )}
 
       {done && (
@@ -125,19 +128,31 @@ export default function AuditDetailPage() {
             </Card>
           )}
 
-          <Card title="Check coverage">
+          <Card title="Check coverage" flush>
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2 pr-4">Check</th><th className="pr-4">Status</th><th>Notes</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {run.coverage.map((c) => (
-                    <tr key={c.check_key} className="align-top">
-                      <td className="py-1.5 pr-4">{c.label}</td>
-                      <td className="py-1.5 pr-4"><CoverageBadge status={c.status} /></td>
-                      <td className="py-1.5 text-slate-600">{c.reason ?? ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
+              <table className="sw-table">
+                <thead><tr><th>Check</th><th>Status</th><th>Notes</th></tr></thead>
+                {AUDIT_CATEGORIES.map((cat) => {
+                  const rows = run.coverage.filter((c) => c.category === cat.key);
+                  if (!rows.length) return null;
+                  const Icon = cat.icon;
+                  return (
+                    <tbody key={cat.key} className="divide-y divide-slate-100">
+                      <tr className="bg-slate-50/60 hover:bg-slate-50/60">
+                        <td colSpan={3} className="!py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                          <span className="inline-flex items-center gap-2"><Icon size={14} />{cat.label}</span>
+                        </td>
+                      </tr>
+                      {rows.map((c) => (
+                        <tr key={c.check_key} className="align-top">
+                          <td>{c.label}</td>
+                          <td><CoverageBadge status={c.status} /></td>
+                          <td className="text-slate-600">{c.reason ?? ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  );
+                })}
               </table>
             </div>
           </Card>
@@ -158,7 +173,7 @@ export default function AuditDetailPage() {
             </div>
             {shown.length === 0 ? <p className="text-sm text-slate-500">No findings{findings.length ? " match the filters" : ""}.</p> : (
               <div className="overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
+                <table className="sw-table">
                   <thead className="text-xs uppercase text-slate-500">
                     <tr><th className="py-2 pr-4">Severity</th><th className="pr-4">Finding</th><th className="hidden pr-4 md:table-cell">Check</th><th className="pr-4">Certainty</th></tr>
                   </thead>

@@ -1,8 +1,9 @@
 "use client";
 
+import { FileText } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ReportsTable } from "@/components/ReportsTable";
-import { Button, Card, ErrorNote, inputClass } from "@/components/ui";
+import { Button, Card, ErrorNote, inputClass, PageHeader } from "@/components/ui";
 import { api, lastMonths, periodLabel, type ReportRow, type Website } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -44,14 +45,14 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Reports</h1>
+      <PageHeader title="Reports" icon={<FileText size={20} />} />
       <p className="text-sm text-slate-600">
         {isClient
           ? "Monthly maintenance reports for your websites."
           : "Reports are generated automatically each month for the previous month: a technical report for the team and a client report, which clients see only after it is published."}
       </p>
       <ErrorNote message={error} />
-      {notice && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{notice}</p>}
+      {notice && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">{notice}</p>}
 
       {can("report.generate") && (
         <Card title="Generate a report">
@@ -81,11 +82,11 @@ export default function ReportsPage() {
 
       <Card title="Report history" actions={
         <div className="flex gap-2">
-          <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label="Filter website" value={filter.website_id}
+          <select className="rounded-lg border-0 py-1.5 pl-2.5 pr-8 text-sm shadow-sm ring-1 ring-inset ring-slate-300" aria-label="Filter website" value={filter.website_id}
                   onChange={(e) => setFilter({ ...filter, website_id: e.target.value })}>
             <option value="">All websites</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label="Filter period" value={filter.period}
+          <select className="rounded-lg border-0 py-1.5 pl-2.5 pr-8 text-sm shadow-sm ring-1 ring-inset ring-slate-300" aria-label="Filter period" value={filter.period}
                   onChange={(e) => setFilter({ ...filter, period: e.target.value })}>
             <option value="">All periods</option>{lastMonths(13).map((p) => <option key={p} value={p}>{periodLabel(p)}</option>)}
           </select>

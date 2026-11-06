@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.audit.checks import CHECKS
-from app.audit.service import AuditBusy, create_manual_run
+from app.audit.checks import CATEGORIES, CATEGORY_OF, CHECKS
+from app.audit.service import AuditBusy, create_manual_run, delete_run
 from app.auth.deps import client_ip, require
 from app.auth.scope import get_website_or_404, not_found, website_scope_clause
 from app.db import get_db
@@ -37,6 +37,8 @@ class RunOut(BaseModel):
     finished_at: datetime | None
     pages_crawled: int
     summary: dict
+    progress: dict
+    categories: list[str] | None
     error: str | None
 
 
@@ -60,7 +62,8 @@ class FindingOut(BaseModel):
 def _run_out(run: AuditRun, site: Website) -> dict:
     return dict(id=run.id, website_id=run.website_id, website_name=site.name, trigger=run.trigger, period=run.period,
                 status=run.status, created_at=run.created_at, started_at=run.started_at, finished_at=run.finished_at,
-                pages_crawled=run.pages_crawled, summary=run.summary or {}, error=run.error)
+                pages_crawled=run.pages_crawled, summary=run.summary or {}, error=run.error,
+                progress=run.progress or {}, categories=(run.config_snapshot or {}).get("categories"))
 
 
 def _get_run(db: Session, user: User, run_id: uuid.UUID) -> tuple[AuditRun, Website]:
@@ -81,14 +84,30 @@ def list_runs(website_id: uuid.UUID | None = None, limit: int = Query(default=50
     return [_run_out(r, w) for r, w in rows]
 
 
+class StartAuditIn(BaseModel):
+    categories: list[str] | None = Field(default=None, min_length=1, max_length=20,
+                                         description="Audit categories to run; omit for all")
+
+
+@router.get("/audit-categories")
+def audit_categories(_: User = Depends(require("audit.read_detailed"))):
+    return [{"key": k, "label": c["label"], "description": c["description"],
+             "checks": [{"key": ck, "label": CHECKS[ck]} for ck in c["checks"]]} for k, c in CATEGORIES.items()]
+
+
 @router.post("/websites/{website_id}/audits", response_model=RunOut, status_code=status.HTTP_202_ACCEPTED)
-def start_audit(website_id: uuid.UUID, request: Request, db: Session = Depends(get_db),
-                user: User = Depends(require("audit.run"))):
+def start_audit(website_id: uuid.UUID, request: Request, body: StartAuditIn | None = None,
+                db: Session = Depends(get_db), user: User = Depends(require("audit.run"))):
+    categories = body.categories if body else None
+    if categories is not None:
+        unknown = sorted(set(categories) - set(CATEGORIES))
+        if unknown:
+            raise HTTPException(422, f"Unknown audit categories: {', '.join(unknown)}")
     site = get_website_or_404(db, user, website_id)
     if site.status == "archived":
         raise HTTPException(status.HTTP_409_CONFLICT, "Archived websites cannot be audited.")
     try:
-        run = create_manual_run(db, site, user.id)
+        run = create_manual_run(db, site, user.id, categories)
     except AuditBusy:
         raise HTTPException(status.HTTP_409_CONFLICT, "An audit for this website is already queued or running.") from None
     record(db, user.id, "audit.run", "website", site.id, client_ip(request), run_id=str(run.id))
@@ -100,10 +119,21 @@ def start_audit(website_id: uuid.UUID, request: Request, db: Session = Depends(g
     return _run_out(run, site)
 
 
+@router.delete("/audits/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_run(run_id: uuid.UUID, request: Request, db: Session = Depends(get_db),
+               user: User = Depends(require("audit.delete"))):
+    run, site = _get_run(db, user, run_id)
+    if run.status in ("queued", "running"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A queued or running audit cannot be deleted.")
+    removed = delete_run(db, run)
+    record(db, user.id, "audit.delete", "website", site.id, client_ip(request), run_id=str(run_id), issues_removed=removed)
+    db.commit()
+
+
 @router.get("/audits/{run_id}", response_model=RunDetail)
 def get_run(run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require("audit.read_detailed"))):
     run, site = _get_run(db, user, run_id)
-    coverage = [{"check_key": k, "label": label, **(run.check_coverage or {}).get(k, {"status": "not_checked",
+    coverage = [{"check_key": k, "label": label, "category": CATEGORY_OF.get(k), **(run.check_coverage or {}).get(k, {"status": "not_checked",
                  "reason": "Not evaluated in this run"})} for k, label in CHECKS.items()] if run.status in (
                      "completed", "partial") else []
     return RunDetail(**_run_out(run, site), coverage=coverage, config=run.config_snapshot or {})

@@ -79,7 +79,7 @@ export function MonitoringPanel({ websiteId, degradedMs, archived }: { websiteId
     <div className="space-y-6">
       <Card title="Uptime" actions={can("uptime.check_now") && !archived ? <Button variant="secondary" onClick={checkNow}>Run check now</Button> : undefined}>
         <ErrorNote message={error} />
-        {notice && <p className="mb-3 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-900">{notice}</p>}
+        {notice && <p className="mb-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-sky-900">{notice}</p>}
         {uptime && (
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -91,7 +91,7 @@ export function MonitoringPanel({ websiteId, degradedMs, archived }: { websiteId
       </Card>
 
       <Card title="Average response time (hourly)" actions={
-        <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={hours} onChange={(e) => setHours(Number(e.target.value))}
+        <select className="rounded-lg border-0 py-1.5 pl-2.5 pr-8 text-sm shadow-sm ring-1 ring-inset ring-slate-300" value={hours} onChange={(e) => setHours(Number(e.target.value))}
                 aria-label="Time range">
           <option value={24}>24 hours</option><option value={168}>7 days</option><option value={720}>30 days</option>
         </select>}>
@@ -101,7 +101,7 @@ export function MonitoringPanel({ websiteId, degradedMs, archived }: { websiteId
       <Card title="Incidents">
         {incidents.length === 0 ? <p className="text-sm text-slate-500">No outages recorded.</p> : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Started</th><th className="pr-4">Ended</th><th className="pr-4">Duration</th>
                   <th className="pr-4">Status</th>{!isClient && <th className="pr-4">Cause</th>}</tr>
@@ -129,7 +129,7 @@ export function MonitoringPanel({ websiteId, degradedMs, archived }: { websiteId
           </label>}>
           {checks.length === 0 ? <p className="text-sm text-slate-500">No checks recorded yet.</p> : (
             <div className="max-h-96 overflow-auto">
-              <table className="min-w-full text-left text-sm">
+              <table className="sw-table">
                 <thead className="sticky top-0 bg-white text-xs uppercase text-slate-500">
                   <tr><th className="py-2 pr-4">Time</th><th className="pr-4">Result</th><th className="pr-4">HTTP</th>
                     <th className="pr-4">Response</th><th className="pr-4">Detail</th></tr>

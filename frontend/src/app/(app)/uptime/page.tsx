@@ -1,8 +1,9 @@
 "use client";
 
+import { Activity } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, ErrorNote, HealthCell, NoData } from "@/components/ui";
+import { Button, Card, ErrorNote, HealthCell, NoData, PageHeader } from "@/components/ui";
 import { api, fmtCoverage, fmtDate, fmtDuration, fmtPct, type Incident, type UptimeOverviewRow, type Website } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -37,11 +38,11 @@ export default function UptimePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Uptime Monitoring</h1>
+      <PageHeader title="Uptime Monitoring" icon={<Activity size={20} />} description="Outages are confirmed by retries before an incident is opened, and closed only after successful checks." />
       <ErrorNote message={error} />
 
       <Card title={state === "open" ? "Active incidents" : "All incidents"} actions={
-        <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" value={state} aria-label="Incident filter"
+        <select className="rounded-lg border-0 py-1.5 pl-2.5 pr-8 text-sm shadow-sm ring-1 ring-inset ring-slate-300" value={state} aria-label="Incident filter"
                 onChange={(e) => setState(e.target.value as "open" | "all")}>
           <option value="open">Active only</option><option value="all">All</option>
         </select>}>
@@ -49,7 +50,7 @@ export default function UptimePage() {
           <p className="text-sm text-slate-500">{state === "open" ? "No active incidents." : "No incidents recorded."}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Website</th><th className="pr-4">Started</th><th className="pr-4">Duration</th>
                   <th className="pr-4">Status</th>{!isClient && <th className="pr-4">Cause</th>}<th /></tr>
@@ -82,7 +83,7 @@ export default function UptimePage() {
       <Card title="Websites">
         {sites.length === 0 ? <p className="text-sm text-slate-500">No websites.</p> : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Website</th><th className="pr-4">Status</th><th className="pr-4 text-right">24 h</th>
                   <th className="hidden pr-4 text-right sm:table-cell">7 days</th><th className="hidden pr-4 text-right sm:table-cell">30 days</th>

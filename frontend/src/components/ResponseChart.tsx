@@ -87,7 +87,7 @@ export function ResponseChart({ data, thresholdMs, hours }: { data: ResponseBuck
         <p className="py-8 text-center text-sm text-slate-500">No successful checks in this period — no response times to show.</p>
       ) : showTable ? (
         <div className="max-h-64 overflow-auto">
-          <table className="min-w-full text-left text-sm tabular-nums">
+          <table className="sw-table tabular-nums">
             <thead className="sticky top-0 bg-white text-xs uppercase text-slate-500">
               <tr><th className="py-1 pr-4">Hour</th><th className="pr-4">Avg</th><th className="pr-4">p95</th><th className="pr-4">Max</th><th>Checks OK</th></tr>
             </thead>

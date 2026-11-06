@@ -5,6 +5,8 @@ import json
 import pytest
 from sqlalchemy import select
 
+from app.audit.checks import CHECKS
+
 from app.models import AuditFinding, AuditRun, Issue
 from app.notify.senders import MemoryNotifier
 from tests.auditsite import Site, defect_site, materialize, page
@@ -44,7 +46,8 @@ def test_manual_audit_end_to_end_via_api(env, db):
     assert detail["status"] == "completed" and detail["pages_crawled"] >= 8
     cov = {c["check_key"]: c for c in detail["coverage"]}
     assert cov["javascript_rendering"]["status"] == "not_checked" and cov["javascript_rendering"]["reason"]
-    assert len(detail["coverage"]) == 19  # every check is listed, performed or not
+    assert len(detail["coverage"]) == len(CHECKS)  # every check is listed, performed or not
+    assert all(c["category"] for c in detail["coverage"])
 
     f = e["dev"].get(f"/api/v1/audits/{run_id}/findings?check_key=broken_internal_link").json()
     assert {x["severity"] for x in f} == {"high"} and len(f) == 2

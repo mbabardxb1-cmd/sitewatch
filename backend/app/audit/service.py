@@ -12,15 +12,16 @@ Issue rules (requirement: never claim a fix that was not verified):
 """
 import hashlib
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.audit.checks import CHECKS, AuditOutcome, evaluate
+from app.audit.checks import CATEGORIES, CHECKS, AuditOutcome, evaluate
 from app.audit.crawler import Crawler
-from app.models import AuditFinding, AuditRun, Client, Issue, MonitoredUrl, Website
+from app.models import AuditFinding, AuditRun, Client, Issue, IssueComment, MonitoredUrl, Website
 from app.netsafe.http import BlockedTargetError, DnsResolutionError
 from app.netsafe.tls import inspect_certificate
 from app.notify.service import compose, queue_notification
@@ -49,10 +50,16 @@ def create_due_scheduled_runs(db: Session, now: datetime | None = None) -> list:
     period = period_of(now)
     sites = db.scalars(
         select(Website).join(Client, Client.id == Website.client_id)
-        .where(Website.status == "active", Client.is_active.is_(True), Website.audit_day_of_month <= now.day)
+        .where(Website.status == "active", Client.is_active.is_(True), Website.auto_audit.is_(True),
+               Website.audit_day_of_month <= now.day)
     ).unique().all()
     created = []
     for site in sites:
+        # A website added after this month's audit day waits for next month: nothing runs
+        # until a person starts an audit or the next scheduled day arrives.
+        audit_day = datetime(now.year, now.month, site.audit_day_of_month, tzinfo=UTC)
+        if site.created_at and site.created_at >= audit_day:
+            continue
         stmt = pg_insert(AuditRun).values(
             website_id=site.id, period=period, trigger="scheduled", status="queued",
             config_snapshot=site.crawl_config,
@@ -65,13 +72,16 @@ def create_due_scheduled_runs(db: Session, now: datetime | None = None) -> list:
     return created
 
 
-def create_manual_run(db: Session, site: Website, user_id) -> AuditRun:
+def create_manual_run(db: Session, site: Website, user_id, categories: list[str] | None = None) -> AuditRun:
     busy = db.scalar(select(AuditRun.id).where(AuditRun.website_id == site.id,
                                                AuditRun.status.in_(("queued", "running"))))
     if busy is not None:
         raise AuditBusy()
+    config = dict(site.crawl_config)
+    if categories is not None and set(categories) != set(CATEGORIES):
+        config["categories"] = [c for c in CATEGORIES if c in categories]
     run = AuditRun(website_id=site.id, trigger="manual", triggered_by=user_id, status="queued",
-                   config_snapshot=site.crawl_config)
+                   config_snapshot=config)
     db.add(run)
     db.flush()
     return run
@@ -96,25 +106,60 @@ def claim_run(db: Session, run_id) -> AuditRun | None:
     return db.get(AuditRun, rid) if rid else None
 
 
-def execute_run(db: Session, run_id, crawler_factory=Crawler) -> AuditRun | None:
+def expected_duration_s(db: Session, website_id) -> float | None:
+    """Duration of the last finished audit of this website, used for the first time estimate."""
+    prev = db.execute(select(AuditRun.started_at, AuditRun.finished_at).where(
+        AuditRun.website_id == website_id, AuditRun.status.in_(("completed", "partial")),
+        AuditRun.started_at.is_not(None), AuditRun.finished_at.is_not(None))
+        .order_by(AuditRun.created_at.desc()).limit(1)).first()
+    return round((prev[1] - prev[0]).total_seconds(), 1) if prev else None
+
+
+class ProgressWriter:
+    """Persists crawler progress in its own short transactions, at most every 2 seconds."""
+
+    def __init__(self, run_id, expected_s: float | None, min_interval: float = 2.0):
+        self.run_id, self.expected_s, self.min_interval = run_id, expected_s, min_interval
+        self._last = 0.0
+
+    def __call__(self, p: dict) -> None:
+        now = time.monotonic()
+        if now - self._last < self.min_interval:
+            return
+        self._last = now
+        from app.db import SessionLocal
+
+        with SessionLocal() as s:
+            s.execute(update(AuditRun).where(AuditRun.id == self.run_id, AuditRun.status == "running").values(
+                progress={**p, "expected_s": self.expected_s, "updated_at": datetime.now(UTC).isoformat()}))
+            s.commit()
+
+
+def execute_run(db: Session, run_id, crawler_factory=Crawler, progress=None) -> AuditRun | None:
     run = claim_run(db, run_id)
     if run is None:
         return None
     site = db.get(Website, run.website_id)
     config = run.config_snapshot or site.crawl_config
+    categories = set(config["categories"]) if config.get("categories") else None
+    expected = expected_duration_s(db, site.id)
+    run.progress = {"percent": 0, "phase": "Starting", "pages_crawled": 0, "expected_s": expected,
+                    "updated_at": datetime.now(UTC).isoformat()}
+    db.commit()
     try:
         important = [m.url for m in db.scalars(select(MonitoredUrl).where(
             MonitoredUrl.website_id == site.id, MonitoredUrl.is_important.is_(True)))]
         base_url, hostname, is_https = site.base_url, site.hostname, site.base_url.startswith("https://")
         db.commit()  # release the transaction during the (long) crawl
-        cr = crawler_factory(base_url, config, important).run()
+        cr = crawler_factory(base_url, config, important, categories=categories,
+                             progress=progress or ProgressWriter(run_id, expected)).run()
         cert, cert_error = None, None
-        if is_https:
+        if is_https and (categories is None or "security" in categories):
             try:
                 cert = inspect_certificate(hostname, _port(base_url), timeout=float(config.get("timeout_s", 15)))
             except (BlockedTargetError, DnsResolutionError, OSError) as e:
                 cert_error = str(e)[:300] or type(e).__name__
-        outcome = evaluate(cr, config, cert, cert_error, is_https)
+        outcome = evaluate(cr, config, cert, cert_error, is_https, categories=categories)
         notifications = persist_outcome(db, run, site, outcome, cr)
     except Exception as e:  # noqa: BLE001
         log.exception("Audit %s failed", run_id)
@@ -165,7 +210,10 @@ def persist_outcome(db: Session, run: AuditRun, site: Website, outcome: AuditOut
         **{k: [str(i) for i in v] for k, v in diff.items()},
         "counts": {k: len(v) for k, v in diff.items()},
     }
+    if (run.config_snapshot or {}).get("categories"):
+        run.summary["categories"] = sorted(run.config_snapshot["categories"])
     run.finished_at = now
+    run.progress = {"percent": 100, "phase": "Finished", "pages_crawled": run.pages_crawled}
     site.last_audit_at = now
 
     notes: list[int] = []
@@ -261,6 +309,21 @@ def sync_issues(db: Session, run: AuditRun, site: Website, outcome: AuditOutcome
             issue.resolution_note = note
             diff["resolved"].append(issue.id)
     return diff
+
+
+def delete_run(db: Session, run: AuditRun) -> int:
+    """Delete an audit run. Issues first found by this run and not seen by any other run are
+    deleted with it (with their notes); other issues simply lose the reference."""
+    only_here = list(db.scalars(select(Issue.id).where(
+        Issue.first_seen_run_id == run.id,
+        (Issue.last_seen_run_id == run.id) | Issue.last_seen_run_id.is_(None))))
+    if only_here:
+        db.execute(IssueComment.__table__.delete().where(IssueComment.issue_id.in_(only_here)))
+        db.execute(Issue.__table__.delete().where(Issue.id.in_(only_here)))
+    db.execute(AuditFinding.__table__.delete().where(AuditFinding.audit_run_id == run.id))
+    db.delete(run)
+    db.flush()
+    return len(only_here)
 
 
 CHECK_LABELS = CHECKS

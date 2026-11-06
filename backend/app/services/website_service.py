@@ -70,7 +70,7 @@ def to_view(site: Website, user: User) -> WebsiteClientView | WebsiteStaffView:
         hostname=site.hostname, check_interval_s=site.check_interval_s, retry_attempts=site.retry_attempts,
         recovery_threshold=site.recovery_threshold, timeout_s=site.timeout_s,
         degraded_threshold_ms=site.degraded_threshold_ms, expected_status_codes=site.expected_status_codes,
-        next_check_at=site.next_check_at, audit_day_of_month=site.audit_day_of_month,
+        next_check_at=site.next_check_at, audit_day_of_month=site.audit_day_of_month, auto_audit=site.auto_audit,
         crawl_config=site.crawl_config, ssl_monitoring=site.ssl_monitoring,
         notification_recipients=site.notification_recipients,
         assigned_users=[

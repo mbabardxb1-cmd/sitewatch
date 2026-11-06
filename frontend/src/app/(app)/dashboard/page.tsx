@@ -1,8 +1,9 @@
 "use client";
 
+import { CheckCircle2, Gauge, Globe, HelpCircle, LayoutDashboard, Plus, Siren, Timer, TrendingUp, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Card, ErrorNote, HealthCell, NoData, Stat, StatusBadge } from "@/components/ui";
+import { Card, ErrorNote, HealthCell, NoData, PageHeader, Stat, StatusBadge } from "@/components/ui";
 import { api, fmtDate, fmtPct, periodLabel, SEVERITIES, type DashboardSummary } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -52,10 +53,10 @@ function ClientDashboard({ data }: { data: DashboardSummary }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Your websites" value={data.total_websites} />
-        <Stat label="Online now" value={data.online} />
-        <Stat label="Offline now" value={data.offline} />
-        <Stat label="Uptime (30 days)" value={data.monthly_uptime_pct !== null ? `${data.monthly_uptime_pct.toFixed(2)} %` : <NoData />}
+        <Stat label="Your websites" value={data.total_websites} icon={<Globe size={16} />} />
+        <Stat label="Online now" value={data.online} icon={<CheckCircle2 size={16} />} tone="green" />
+        <Stat label="Offline now" value={data.offline} icon={<XCircle size={16} />} tone={data.offline ? "red" : "slate"} />
+        <Stat icon={<TrendingUp size={16} />} label="Uptime (30 days)" value={data.monthly_uptime_pct !== null ? `${data.monthly_uptime_pct.toFixed(2)} %` : <NoData />}
               note={data.monthly_uptime_note} />
       </div>
       <Notices data={data} isClient />
@@ -67,7 +68,7 @@ function ClientDashboard({ data }: { data: DashboardSummary }) {
             const rep = reports[w.id];
             const up = data.uptime_30d[w.id];
             return (
-              <section key={w.id} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <section key={w.id} className="space-y-3 rounded-xl border border-slate-200/80 bg-white p-5 shadow-card">
                 <div>
                   <Link href={`/websites/${w.id}`} className="text-base font-semibold hover:underline">{w.name}</Link>
                   <div className="break-all text-xs text-slate-500">{w.base_url}</div>
@@ -83,7 +84,7 @@ function ClientDashboard({ data }: { data: DashboardSummary }) {
                     <>
                       <span>Latest report: <strong>{periodLabel(rep.period)}</strong></span>
                       {rep.overall_level && <StatusBadge status={rep.overall_level} />}
-                      <a href={`/api/v1/reports/${rep.report_id}/download`} className="ml-auto rounded-md px-3 py-1.5 font-medium ring-1 ring-slate-300 hover:bg-slate-50">
+                      <a href={`/api/v1/reports/${rep.report_id}/download`} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50">
                         Download PDF
                       </a>
                     </>
@@ -102,22 +103,22 @@ function StaffDashboard({ data }: { data: DashboardSummary }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Websites monitored" value={data.total_websites} note={data.paused ? `${data.paused} paused` : undefined} />
-        <Stat label="Online" value={data.online} />
-        <Stat label="Offline" value={data.offline} />
-        <Stat label="Degraded" value={data.degraded} />
-        <Stat label="Avg response (24 h)" value={data.avg_response_ms_24h !== null ? `${data.avg_response_ms_24h} ms` : <NoData />}
+        <Stat icon={<Globe size={16} />} label="Websites monitored" value={data.total_websites} note={data.paused ? `${data.paused} paused` : undefined} />
+        <Stat label="Online" value={data.online} icon={<CheckCircle2 size={16} />} tone="green" />
+        <Stat label="Offline" value={data.offline} icon={<XCircle size={16} />} tone={data.offline ? "red" : "slate"} />
+        <Stat label="Degraded" value={data.degraded} icon={<Gauge size={16} />} tone={data.degraded ? "amber" : "slate"} />
+        <Stat icon={<Timer size={16} />} label="Avg response (24 h)" value={data.avg_response_ms_24h !== null ? `${data.avg_response_ms_24h} ms` : <NoData />}
               note={data.checks_24h ? `${data.checks_24h} successful checks` : "No checks recorded"} />
-        <Stat label="Monthly uptime" value={data.monthly_uptime_pct !== null ? `${data.monthly_uptime_pct.toFixed(2)} %` : <NoData />}
+        <Stat icon={<TrendingUp size={16} />} label="Monthly uptime" value={data.monthly_uptime_pct !== null ? `${data.monthly_uptime_pct.toFixed(2)} %` : <NoData />}
               note={data.monthly_uptime_note} />
-        <Stat label="Active incidents" value={data.active_incidents} />
-        <Stat label="Not yet checked" value={data.unknown} />
+        <Stat label="Active incidents" value={data.active_incidents} icon={<Siren size={16} />} tone={data.active_incidents ? "red" : "slate"} />
+        <Stat label="Not yet checked" value={data.unknown} icon={<HelpCircle size={16} />} tone="slate" />
       </div>
       <Notices data={data} isClient={false} />
-      <Card title="Websites">
-        {data.websites.length === 0 ? <p className="text-sm text-slate-500">No websites assigned to you yet.</p> : (
+      <Card title="Websites" flush>
+        {data.websites.length === 0 ? <p className="p-5 text-sm text-slate-500">No websites assigned to you yet.</p> : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Website</th><th className="pr-4">Status</th>
                   <th className="hidden pr-4 text-right sm:table-cell">Uptime 30 d</th>
@@ -162,15 +163,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold">{isClient ? "Your websites" : "Dashboard"}</h1>
-          <p className="text-sm text-slate-500">Signed in as {me?.full_name || me?.email}</p>
-        </div>
-        {can("website.write") && (
-          <Link href="/websites/new" className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">Add website</Link>
-        )}
-      </div>
+      <PageHeader title={isClient ? "Your websites" : "Dashboard"} icon={<LayoutDashboard size={20} />}
+                  description={`Welcome back, ${me?.full_name || me?.email}.`}
+                  actions={can("website.write") && (
+          <Link href="/websites/new" className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500"><Plus size={16} />Add website</Link>
+        )} />
       <ErrorNote message={error} />
       {data && (isClient ? <ClientDashboard data={data} /> : <StaffDashboard data={data} />)}
     </div>

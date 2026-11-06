@@ -1,9 +1,10 @@
 "use client";
 
+import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ExpiryCell } from "@/components/ExpiryBits";
-import { Card, ErrorNote } from "@/components/ui";
+import { Card, ErrorNote, PageHeader } from "@/components/ui";
 import { api, type ExpiryOverviewRow } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -23,7 +24,7 @@ export default function SslPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">SSL Certificates</h1>
+      <PageHeader title="SSL Certificates" icon={<ShieldCheck size={20} />} />
       <p className="text-sm text-slate-600">
         Certificates are checked daily (every 6 hours in the last two weeks before expiry) by connecting to each website.
       </p>
@@ -34,7 +35,7 @@ export default function SslPage() {
       {applicable.length > 0 && (
         <Card title="Monitored certificates">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Website</th><th className="pr-4">Issuer</th><th className="pr-4">Expires</th></tr>
               </thead>

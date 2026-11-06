@@ -38,6 +38,15 @@ MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_EXTERNAL_CHECKS = 300
 MAX_IMAGE_CHECKS = 500
 MAX_SITEMAP_URL_CHECKS = 100
+MAX_FORM_ACTION_CHECKS = 50
+KEPT_HEADERS = ("x-robots-tag", "strict-transport-security", "x-content-type-options", "x-frame-options",
+                "content-security-policy", "referrer-policy")
+
+# Weight (percent of total) of each phase, used for the progress indicator.
+PHASES = [("robots", "Reading robots.txt and sitemaps", 5), ("pages", "Crawling pages", 60),
+          ("unvisited", "Checking deeper links", 5), ("external", "Checking external links", 12),
+          ("images", "Checking images", 10), ("sitemap", "Checking sitemap URLs", 4),
+          ("forms", "Checking forms", 2), ("important", "Checking important pages", 2)]
 EXTERNAL_HOST_INTERVAL_S = 1.0
 
 
@@ -90,6 +99,7 @@ class CrawlResult:
     sitemap_urls: list[str] = field(default_factory=list)
     sitemap_checks: dict[str, FetchOutcome] = field(default_factory=dict)
     important: dict[str, FetchOutcome] = field(default_factory=dict)
+    form_actions: dict[str, FetchOutcome] = field(default_factory=dict)
     requests_made: int = 0
     duration_s: float = 0.0
 
@@ -125,7 +135,7 @@ def compile_exclusions(patterns: list[str]):
 
 class Crawler:
     def __init__(self, base_url: str, config: dict, important_urls: list[str] | None = None,
-                 sleep=time.sleep, monotonic=time.monotonic):
+                 sleep=time.sleep, monotonic=time.monotonic, categories: set[str] | None = None, progress=None):
         self.base_url = base_url
         self.cfg = config
         self.important_urls = important_urls or []
@@ -137,6 +147,32 @@ class Crawler:
         self._last_request: dict[tuple, float] = {}
         self.result = CrawlResult(base_url=base_url)
         self.client: httpx.Client | None = None
+        # None = every category. Categories decide which (slow) verification phases run.
+        self.categories = categories
+        self._progress_cb = progress
+        self._phase = "robots"
+
+    def wants(self, category: str) -> bool:
+        return self.categories is None or category in self.categories
+
+    def progress(self, phase: str | None = None, fraction: float = 0.0) -> None:
+        """Report overall completion (0-100) to the optional callback; never lets it break a crawl."""
+        if phase:
+            self._phase = phase
+        if self._progress_cb is None:
+            return
+        done, label = 0.0, ""
+        for key, lab, weight in PHASES:
+            if key == self._phase:
+                done += weight * max(0.0, min(1.0, fraction))
+                label = lab
+                break
+            done += weight
+        try:
+            self._progress_cb({"percent": round(min(99.0, done), 1), "phase": label,
+                               "pages_crawled": len(self.result.pages), "requests": self.result.requests_made})
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---- helpers ------------------------------------------------------------------------
     def is_internal(self, url: str) -> bool:
@@ -176,7 +212,7 @@ class Crawler:
             out.status, out.final_url, out.elapsed_ms = r.status, r.final_url, r.elapsed_ms
             out.hops = [(h.url, h.status) for h in r.hops]
             out.content_type = r.headers.get("content-type", "")
-            out.headers = {k.lower(): v for k, v in r.headers.items() if k.lower() in ("x-robots-tag",)}
+            out.headers = {k.lower(): v for k, v in r.headers.items() if k.lower() in KEPT_HEADERS}
             out.body = r.body
         return out
 
@@ -229,6 +265,7 @@ class Crawler:
         queued = {self.base_url}
         while q:
             url, depth = q.popleft()
+            self.progress(fraction=len(self.result.pages) / max(1, min(max_pages, len(self.result.pages) + len(q) + 1)))
             if len(self.result.pages) >= max_pages:
                 self.result.stopped_reason = "max_pages"
                 self.result.not_crawled_limit.add(url)
@@ -276,6 +313,7 @@ class Crawler:
             if budget <= 0:
                 break
             budget -= 1
+            self.progress(fraction=(200 - budget) / 200)
             self.result.pages[url] = Page(url=url, depth=-1, fetch=self.check_link(url))
 
     def check_external(self) -> None:
@@ -287,10 +325,13 @@ class Crawler:
             if i >= MAX_EXTERNAL_CHECKS:
                 self.result.external_skipped = len(targets) - MAX_EXTERNAL_CHECKS
                 break
+            self.progress(fraction=i / max(1, min(len(targets), MAX_EXTERNAL_CHECKS)))
             self.result.external[url] = self.check_link(url)
 
     def check_images(self) -> None:
+        total = min(len(self.result.image_sources), MAX_IMAGE_CHECKS)
         for i, url in enumerate(sorted(self.result.image_sources)):
+            self.progress(fraction=i / max(1, total))
             if i >= MAX_IMAGE_CHECKS:
                 self.result.images_skipped = len(self.result.image_sources) - MAX_IMAGE_CHECKS
                 break
@@ -313,6 +354,24 @@ class Crawler:
             n += 1
             self.result.sitemap_checks[url] = self.check_link(url)
 
+    def check_form_actions(self) -> None:
+        """Verify that internal form targets exist. Forms are never submitted: only the target
+        URL is requested (HEAD, falling back to GET without any form data)."""
+        targets: set[str] = set()
+        for page in self.result.pages.values():
+            if page.facts is None:
+                continue
+            for f in page.facts.forms:
+                if f.action and f.action != page.url and self.is_internal(f.action):
+                    targets.add(f.action.split("?")[0])
+        for i, url in enumerate(sorted(targets)):
+            if i >= MAX_FORM_ACTION_CHECKS:
+                break
+            if self.result.robots and not self.result.robots.can_fetch(url):
+                continue
+            page = self.result.pages.get(url)
+            self.result.form_actions[url] = page.fetch if page else self.check_link(url)
+
     def check_important(self) -> None:
         for url in self.important_urls:
             page = self.result.pages.get(url)
@@ -322,14 +381,29 @@ class Crawler:
         start = self._now()
         with safe_client(self.timeout) as client:
             self.client = client
+            self.progress("robots")
             self.load_robots()
             if self.result.robots and self.result.robots.parser is not None:
-                self.load_sitemaps()
+                if self.wants("seo"):
+                    self.load_sitemaps()
+                self.progress("pages")
                 self.crawl_pages()
-                self.check_internal_unvisited()
-                self.check_external()
-                self.check_images()
-                self.check_sitemap_urls()
-                self.check_important()
+                if self.wants("links"):
+                    self.progress("unvisited")
+                    self.check_internal_unvisited()
+                    self.progress("external")
+                    self.check_external()
+                if self.wants("images"):
+                    self.progress("images")
+                    self.check_images()
+                if self.wants("seo"):
+                    self.progress("sitemap")
+                    self.check_sitemap_urls()
+                if self.wants("forms"):
+                    self.progress("forms")
+                    self.check_form_actions()
+                if self.wants("links"):
+                    self.progress("important")
+                    self.check_important()
         self.result.duration_s = round(self._now() - start, 1)
         return self.result

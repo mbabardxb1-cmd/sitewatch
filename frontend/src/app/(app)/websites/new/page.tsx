@@ -1,9 +1,10 @@
 "use client";
 
+import { Globe } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
+import { Button, Card, ErrorNote, Field, inputClass, PageHeader } from "@/components/ui";
 import { DEFAULT_MONITORING, MonitoringFields } from "@/components/WebsiteForms";
 import { api, type ClientOrg, type WebsiteStaff } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -42,7 +43,7 @@ export default function NewWebsitePage() {
     <div className="space-y-6">
       <div>
         <Link href="/websites" className="text-sm text-slate-500 hover:underline">← Websites</Link>
-        <h1 className="text-xl font-semibold">Add website</h1>
+        <PageHeader title="Add website" icon={<Globe size={20} />} description="Register a website to start uptime monitoring. Audits run when you start one, or monthly if enabled." />
       </div>
       <form onSubmit={submit} className="space-y-4">
         <ErrorNote message={error} />

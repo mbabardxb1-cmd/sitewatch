@@ -40,6 +40,8 @@ class AuditRun(UUIDPk, Timestamps, Base):
     # {check_key: {"status": "performed" | "not_checked" | "error", "reason": str}}
     check_coverage: Mapped[dict] = mapped_column(JSONB, default=dict)
     summary: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Live progress while running: {"percent", "phase", "pages_crawled", "updated_at", "expected_s"}
+    progress: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=sa.text("'{}'::jsonb"))
     error: Mapped[str | None] = mapped_column(Text)
 
 

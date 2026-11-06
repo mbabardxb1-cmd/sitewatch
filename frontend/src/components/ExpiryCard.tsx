@@ -42,7 +42,7 @@ export function ExpiryCard({ websiteId }: { websiteId: string }) {
     <div id="expiry">
     <Card title="Domain, hosting & SSL">
       <ErrorNote message={error} />
-      {notice && <p className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{notice}</p>}
+      {notice && <p className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">{notice}</p>}
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">Domain{domain.domain ? ` · ${domain.domain}` : ""}</h3>
@@ -115,12 +115,12 @@ function DomainDetails({ d }: { d: DomainView }) {
   );
 }
 
-function DomainForm({ d, onSave }: { d: DomainView; onSave: (body: object) => void }) {
-  const [open, setOpen] = useState(false);
+function DomainForm({ d, onSave, startOpen, onCancel }: { d: DomainView; onSave: (body: object) => void; startOpen?: boolean; onCancel?: () => void }) {
+  const [open, setOpen] = useState(!!startOpen);
   const [f, setF] = useState({ domain: d.domain_overridden ? (d.domain ?? "") : "", date: d.manual?.expires_at?.slice(0, 10) ?? "", registrar: d.manual?.registrar ?? "" });
   if (!open) return <button className="block text-xs text-slate-600 underline" onClick={() => setOpen(true)}>Enter details manually</button>;
   return (
-    <form className="space-y-2 rounded-md bg-slate-50 p-3" onSubmit={(e) => {
+    <form className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" onSubmit={(e) => {
       e.preventDefault();
       onSave({ domain: f.domain, manual_expires_at: f.date || null, manual_registrar: f.registrar });
     }}>
@@ -136,28 +136,28 @@ function DomainForm({ d, onSave }: { d: DomainView; onSave: (body: object) => vo
       <div className="flex flex-wrap gap-2">
         <Button type="submit">Save</Button>
         {d.manual && <Button type="button" variant="danger" onClick={() => onSave({ clear_manual: true })}>Remove manual entry</Button>}
-        <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
+        <Button type="button" variant="secondary" onClick={() => (onCancel ? onCancel() : setOpen(false))}>Cancel</Button>
       </div>
     </form>
   );
 }
 
-function HostingForm({ h, onSave }: { h: HostingView; onSave: (body: object) => void }) {
-  const [open, setOpen] = useState(false);
+function HostingForm({ h, onSave, startOpen, onCancel }: { h: HostingView; onSave: (body: object) => void; startOpen?: boolean; onCancel?: () => void }) {
+  const [open, setOpen] = useState(!!startOpen);
   const [f, setF] = useState({
     provider: h.provider ?? "", plan: h.plan ?? "", account_reference: h.account_reference ?? "",
     renewal_date: h.renewal_date ?? "", internal_notes: h.internal_notes ?? "",
   });
   if (!open) return <button className="block text-xs text-slate-600 underline" onClick={() => setOpen(true)}>Edit hosting details</button>;
   return (
-    <form className="space-y-2 rounded-md bg-slate-50 p-3" onSubmit={(e) => {
+    <form className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" onSubmit={(e) => {
       e.preventDefault();
       const changedDate = f.renewal_date !== (h.renewal_date ?? "");
       onSave({
         provider: f.provider, plan: f.plan, account_reference: f.account_reference, internal_notes: f.internal_notes,
         ...(changedDate ? (f.renewal_date ? { renewal_date: f.renewal_date } : { clear_renewal_date: true }) : {}),
       });
-      setOpen(false);
+      if (!startOpen) setOpen(false);
     }}>
       <Field label="Provider"><input className={inputClass} value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })} /></Field>
       <Field label="Plan"><input className={inputClass} value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })} /></Field>
@@ -166,7 +166,51 @@ function HostingForm({ h, onSave }: { h: HostingView; onSave: (body: object) => 
       <Field label="Internal notes" hint="Staff only. Do not store passwords here.">
         <textarea className={inputClass} rows={2} value={f.internal_notes} onChange={(e) => setF({ ...f, internal_notes: e.target.value })} />
       </Field>
-      <div className="flex gap-2"><Button type="submit">Save</Button><Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button></div>
+      <div className="flex gap-2"><Button type="submit">Save</Button><Button type="button" variant="secondary" onClick={() => (onCancel ? onCancel() : setOpen(false))}>Cancel</Button></div>
     </form>
+  );
+}
+
+/** Manual domain + hosting entry, used inline on the Domain & Hosting overview. */
+export function ExpiryEditor({ websiteId, onSaved, onClose }: { websiteId: string; onSaved: () => void; onClose: () => void }) {
+  const [data, setData] = useState<WebsiteExpiry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api<WebsiteExpiry>(`/websites/${websiteId}/expiry`).then(setData).catch((e) => setError(e.message));
+  }, [websiteId]);
+  useEffect(load, [load]);
+
+  async function save(path: string, body: object, ok: string) {
+    setError(null);
+    setNotice(null);
+    try {
+      await api(`/websites/${websiteId}/${path}`, { method: "PUT", body });
+      setNotice(ok);
+      load();
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  if (!data) return <p className="text-sm text-slate-500">{error ?? "Loading…"}</p>;
+  return (
+    <div className="space-y-3">
+      <ErrorNote message={error} />
+      {notice && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">{notice}</p>}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-900">Domain{data.domain.domain ? ` · ${data.domain.domain}` : ""}</h3>
+          <DomainForm d={data.domain} startOpen onCancel={onClose}
+                      onSave={(body) => save("domain", body, "Domain details saved.")} />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-slate-900">Hosting</h3>
+          <HostingForm h={data.hosting} startOpen onCancel={onClose}
+                       onSave={(body) => save("hosting", body, "Hosting details saved.")} />
+        </div>
+      </div>
+    </div>
   );
 }

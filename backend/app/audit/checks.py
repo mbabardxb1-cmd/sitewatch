@@ -33,7 +33,45 @@ CHECKS: dict[str, str] = {
     "ssl_certificate": "SSL certificate validity and expiry",
     "important_page_unavailable": "Important pages availability",
     "javascript_rendering": "JavaScript-rendered content",
+    "heading_structure": "Main heading (H1) structure",
+    "large_page": "Oversized HTML pages",
+    "mixed_content": "Insecure (mixed) content on HTTPS pages",
+    "security_headers": "Security headers",
+    "form_security": "Forms submitting insecurely",
+    "form_action": "Form targets that do not exist",
+    "form_spam_protection": "Form spam protection",
+    "form_labels": "Form fields without labels",
+    "missing_viewport": "Mobile viewport configuration",
+    "missing_lang": "Page language declaration",
 }
+
+# Audit categories a person can choose from when starting an audit. Every check belongs to one.
+CATEGORIES: dict[str, dict] = {
+    "links": {"label": "Broken links & redirects",
+              "description": "Internal and external links, redirect chains and loops, important pages.",
+              "checks": ["broken_internal_link", "broken_external_link", "redirect_chain", "redirect_loop",
+                         "page_access_restricted", "important_page_unavailable"]},
+    "seo": {"label": "SEO",
+            "description": "Titles, meta descriptions, headings, robots.txt, sitemap and indexing.",
+            "checks": ["missing_title", "duplicate_title", "missing_meta_description", "duplicate_meta_description",
+                       "heading_structure", "robots_txt", "robots_blocked_pages", "indexing", "sitemap",
+                       "javascript_rendering"]},
+    "images": {"label": "Images", "description": "Broken images and images without alternative text.",
+               "checks": ["broken_image", "missing_alt"]},
+    "performance": {"label": "Performance", "description": "Slow server responses and oversized pages.",
+                    "checks": ["slow_page", "large_page"]},
+    "security": {"label": "Security & SSL",
+                 "description": "Certificate validity, mixed content and security headers.",
+                 "checks": ["ssl_certificate", "mixed_content", "security_headers"]},
+    "forms": {"label": "Forms",
+              "description": "Form targets, secure submission and spam protection. Forms are never submitted.",
+              "checks": ["form_security", "form_action", "form_spam_protection"]},
+    "mobile": {"label": "Mobile & accessibility",
+               "description": "Viewport for mobile devices, page language and labelled form fields.",
+               "checks": ["missing_viewport", "missing_lang", "form_labels"]},
+}
+CATEGORY_OF = {c: key for key, cat in CATEGORIES.items() for c in cat["checks"]}
+LARGE_PAGE_BYTES = 1024 * 1024
 
 MAX_FINDINGS_PER_CHECK = 1000
 MAX_SOURCES = 20
@@ -82,7 +120,7 @@ def _sources(cr: CrawlResult, url: str) -> list[str]:
 
 
 def evaluate(cr: CrawlResult, config: dict, cert: CertInfo | None, cert_error: str | None,
-             is_https: bool, now: datetime | None = None) -> AuditOutcome:
+             is_https: bool, now: datetime | None = None, categories: set[str] | None = None) -> AuditOutcome:
     now = now or datetime.now(UTC)
     F: list[Finding] = []
     cov: dict[str, dict] = {}
@@ -344,9 +382,19 @@ def evaluate(cr: CrawlResult, config: dict, cert: CertInfo | None, cert_error: s
                              info, subject="ssl"))
         covered("ssl_certificate", "performed", None, **info)
 
+    _extra_checks(cr, html_pages, homepage, is_https, F, covered, verified)
+
     covered("javascript_rendering", "not_checked",
             "JavaScript rendering is not available in this version; content added by scripts was not audited"
             if config.get("render_js") else "Pages were audited from their HTML only (JavaScript rendering disabled)")
+
+    # Categories that were not selected: drop their findings and say so in the coverage.
+    if categories is not None:
+        skipped = {k for k in CHECKS if CATEGORY_OF.get(k) not in categories}
+        F = [f for f in F if f.check_key not in skipped]
+        for k in skipped:
+            cov[k] = {"status": "not_checked", "reason": "Not selected for this audit"}
+            verified.pop(k, None)
 
     # cap findings per check
     per: dict[str, int] = defaultdict(int)
@@ -372,3 +420,133 @@ def evaluate(cr: CrawlResult, config: dict, cert: CertInfo | None, cert_error: s
         "stopped_reason": cr.stopped_reason,
     }
     return AuditOutcome(findings=capped, coverage=cov, stats=stats, verified_subjects=dict(verified))
+
+
+def _extra_checks(cr: CrawlResult, html_pages, homepage, is_https: bool, F: list, covered, verified) -> None:
+    """Headings, page weight, mixed content, security headers, forms, mobile/accessibility basics."""
+    if not cr.pages:
+        for key in ("heading_structure", "large_page", "mixed_content", "security_headers", "form_security",
+                    "form_action", "form_spam_protection", "form_labels", "missing_viewport", "missing_lang"):
+            covered(key, "not_checked", "The site could not be crawled")
+        return
+    none_reason = None if html_pages else "No HTML pages could be fetched"
+
+    # ---- headings, size -------------------------------------------------------------------
+    for p in html_pages:
+        verified["heading_structure"].add(p.url)
+        verified["large_page"].add(p.url)
+        if p.facts.h1_count == 0:
+            F.append(Finding("heading_structure", "low", "confirmed", f"No H1 heading: {_path(p.url)}", p.url))
+        elif p.facts.h1_count > 1:
+            F.append(Finding("heading_structure", "info", "confirmed",
+                             f"{p.facts.h1_count} H1 headings: {_path(p.url)}", p.url, None, {"h1_count": p.facts.h1_count}))
+        size = len(p.fetch.body or b"")
+        if size > LARGE_PAGE_BYTES:
+            F.append(Finding("large_page", "low", "confirmed", f"Large HTML ({size // 1024} KB): {_path(p.url)}", p.url,
+                             None, {"bytes": size}))
+    covered("heading_structure", "performed" if html_pages else "not_checked", none_reason, pages_checked=len(html_pages))
+    covered("large_page", "performed" if html_pages else "not_checked", none_reason, pages_checked=len(html_pages))
+
+    # ---- mixed content -----------------------------------------------------------------------
+    if not is_https:
+        covered("mixed_content", "not_applicable", "Website is configured with an http:// URL")
+    else:
+        https_pages = [p for p in html_pages if p.url.startswith("https://")]
+        for p in https_pages:
+            verified["mixed_content"].add(p.url)
+            active = sorted({u for u in p.facts.resources if u.startswith("http://")})
+            passive = sorted({src for src, _ in p.facts.images if src.startswith("http://")})
+            if active:
+                F.append(Finding("mixed_content", "high", "confirmed",
+                                 f"Insecure scripts/styles loaded over http://: {_path(p.url)}", p.url, None,
+                                 {"resources": active[:50], "note": "Browsers block these, which can break the page."}))
+            elif passive:
+                F.append(Finding("mixed_content", "medium", "confirmed",
+                                 f"Insecure images loaded over http://: {_path(p.url)}", p.url, None, {"images": passive[:50]}))
+        covered("mixed_content", "performed" if https_pages else "not_checked",
+                None if https_pages else "No HTTPS pages could be fetched", pages_checked=len(https_pages))
+
+    # ---- security headers (homepage) -------------------------------------------------------------
+    if homepage is None or homepage.fetch.status is None or not homepage.fetch.ok:
+        covered("security_headers", "not_checked", "The homepage could not be fetched")
+    else:
+        h = homepage.fetch.headers
+        missing = []
+        if is_https and "strict-transport-security" not in h:
+            missing.append("Strict-Transport-Security (HSTS)")
+        if h.get("x-content-type-options", "").lower() != "nosniff":
+            missing.append("X-Content-Type-Options: nosniff")
+        if "x-frame-options" not in h and "frame-ancestors" not in h.get("content-security-policy", ""):
+            missing.append("X-Frame-Options or CSP frame-ancestors (clickjacking protection)")
+        verified["security_headers"].add("headers")
+        if missing:
+            F.append(Finding("security_headers", "low", "confirmed", f"Homepage is missing {len(missing)} security header(s)",
+                             cr.base_url, None, {"missing": missing}, subject="headers"))
+        covered("security_headers", "performed", None)
+
+    # ---- forms (never submitted) -------------------------------------------------------------
+    forms: dict[str, dict] = {}
+    for p in html_pages:
+        for f in p.facts.forms:
+            target = f.action or p.url
+            key = f"{target.split('?')[0]}|{f.method}"
+            entry = forms.setdefault(key, {"form": f, "target": target, "pages": [], "protected": False})
+            entry["pages"].append(p.url)
+            entry["protected"] = entry["protected"] or p.facts.spam_protection
+    if not html_pages:
+        for key in ("form_security", "form_action", "form_spam_protection", "form_labels"):
+            covered(key, "not_checked", none_reason)
+    elif not forms:
+        for key in ("form_security", "form_action", "form_spam_protection", "form_labels"):
+            covered(key, "not_applicable", "No forms were found on the crawled pages")
+            verified[key].add("none")
+    else:
+        for key, e in forms.items():
+            f, target, pages = e["form"], e["target"], sorted(e["pages"])
+            where = {"form_target": target, "method": f.method.upper(), "found_on": pages[:MAX_SOURCES]}
+            for k in ("form_security", "form_action", "form_spam_protection", "form_labels"):
+                verified[k].add(key)
+            on_http_page = any(u.startswith("http://") for u in pages)
+            if target.startswith("http://") and (is_https or f.has_password):
+                F.append(Finding("form_security", "high" if f.has_password else "medium", "confirmed",
+                                 f"{'Login form' if f.has_password else 'Form'} submits over insecure http://: {_path(pages[0])}",
+                                 target, pages[0], where, subject=key))
+            elif f.has_password and on_http_page:
+                F.append(Finding("form_security", "high", "confirmed", f"Password form on an http:// page: {_path(pages[0])}",
+                                 target, pages[0], where, subject=key))
+            res = cr.form_actions.get(target.split("?")[0])
+            if res is not None and res.status is not None and (res.status in (404, 410) or res.status >= 500):
+                F.append(Finding("form_action", "high", "confirmed",
+                                 f"Form target returns {_status_text(res)}: {_path(target)}", target, pages[0],
+                                 {**where, "status": res.status}, subject=key))
+            if f.method == "post" and f.fields >= 2 and not f.has_password and not e["protected"]:
+                F.append(Finding("form_spam_protection", "info", "warning",
+                                 f"No CAPTCHA or honeypot detected on form: {_path(pages[0])}", target, pages[0],
+                                 {**where, "note": "Server-side spam filtering cannot be seen from outside."}, subject=key))
+            if f.unlabeled:
+                F.append(Finding("form_labels", "low", "confirmed",
+                                 f"{f.unlabeled} form field(s) without a label: {_path(pages[0])}", target, pages[0],
+                                 {**where, "unlabeled_fields": f.unlabeled}, subject=key))
+        unchecked_targets = sum(1 for e in forms.values() if e["target"].split("?")[0] not in cr.form_actions
+                                and e["target"] not in e["pages"])
+        covered("form_security", "performed", None, forms=len(forms))
+        covered("form_action", "partial" if unchecked_targets else "performed",
+                f"{unchecked_targets} form target(s) on other hosts or over the limit were not requested" if unchecked_targets else None,
+                forms=len(forms))
+        covered("form_spam_protection", "performed", None, forms=len(forms))
+        covered("form_labels", "performed", None, forms=len(forms))
+
+    # ---- mobile & language (site-level: usually one template) ---------------------------------
+    no_vp = [p.url for p in html_pages if not p.facts.viewport or "width" not in p.facts.viewport]
+    no_lang = [p.url for p in html_pages if not p.facts.lang]
+    verified["missing_viewport"].add("site")
+    verified["missing_lang"].add("site")
+    if no_vp:
+        F.append(Finding("missing_viewport", "medium", "confirmed",
+                         f"{len(no_vp)} page(s) have no mobile viewport (they will render zoomed out on phones)",
+                         no_vp[0], None, {"urls": sorted(no_vp)[:100]}, subject="site"))
+    if no_lang:
+        F.append(Finding("missing_lang", "low", "confirmed", f"{len(no_lang)} page(s) do not declare their language (<html lang>)",
+                         no_lang[0], None, {"urls": sorted(no_lang)[:100]}, subject="site"))
+    for key in ("missing_viewport", "missing_lang"):
+        covered(key, "performed" if html_pages else "not_checked", none_reason, pages_checked=len(html_pages))

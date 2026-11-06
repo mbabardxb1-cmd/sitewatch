@@ -78,6 +78,8 @@ class Website(UUIDPk, Timestamps, Base):
 
     # Audit configuration
     audit_day_of_month: Mapped[int] = mapped_column(default=1)
+    # Run the scheduled monthly audit automatically (manual audits are always possible).
+    auto_audit: Mapped[bool] = mapped_column(default=True, server_default=sa.true())
     crawl_config: Mapped[dict] = mapped_column(JSONB, default=lambda: dict(DEFAULT_CRAWL_CONFIG))
     last_audit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

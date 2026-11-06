@@ -1,8 +1,9 @@
 "use client";
 
+import { Settings } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BrandingCard } from "@/components/BrandingCard";
-import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
+import { Button, Card, ErrorNote, Field, inputClass, PageHeader } from "@/components/ui";
 import { api, fmtDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -53,7 +54,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Settings</h1>
+      <PageHeader title="Settings" icon={<Settings size={20} />} description="Schedules, data retention, report branding and integrations." />
       <ErrorNote message={error} />
       {sys && form && (
         <Card title="Schedules and data retention">
@@ -81,14 +82,14 @@ export default function SettingsPage() {
       <BrandingCard />
 
       <Card title="Security log" actions={
-        <select className="rounded-md border border-slate-300 px-2 py-1 text-sm" aria-label="Filter actions" value={filter} onChange={(e) => setFilter(e.target.value)}>
+        <select className="rounded-lg border-0 py-1.5 pl-2.5 pr-8 text-sm shadow-sm ring-1 ring-inset ring-slate-300" aria-label="Filter actions" value={filter} onChange={(e) => setFilter(e.target.value)}>
           <option value="">All actions</option>
           {["auth", "user", "client", "website", "report", "settings", "integration", "expiry", "issue", "maintenance"].map((a) => <option key={a} value={a}>{a}</option>)}
         </select>}>
         <p className="mb-3 text-xs text-slate-500">Sign-ins, lockouts and every administrative change, with who made it and from which address.</p>
         {log.length === 0 ? <p className="text-sm text-slate-500">No entries.</p> : (
           <div className="max-h-[32rem] overflow-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="sticky top-0 bg-white text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Time</th><th className="pr-4">Who</th><th className="pr-4">Action</th>
                   <th className="hidden pr-4 md:table-cell">Details</th><th className="hidden pr-4 lg:table-cell">IP</th></tr>

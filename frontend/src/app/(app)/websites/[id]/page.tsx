@@ -14,9 +14,9 @@ import { useAuth } from "@/lib/auth";
 
 function pickMonitoring(w: WebsiteStaff): MonitoringValues {
   const { name, base_url, check_interval_s, retry_attempts, recovery_threshold, timeout_s, degraded_threshold_ms,
-    expected_status_codes, audit_day_of_month, ssl_monitoring, notification_recipients } = w;
+    expected_status_codes, audit_day_of_month, auto_audit, ssl_monitoring, notification_recipients } = w;
   return { name, base_url, check_interval_s, retry_attempts, recovery_threshold, timeout_s, degraded_threshold_ms,
-    expected_status_codes, audit_day_of_month, ssl_monitoring, notification_recipients };
+    expected_status_codes, audit_day_of_month, auto_audit, ssl_monitoring, notification_recipients };
 }
 
 export default function WebsiteDetailPage() {
@@ -54,7 +54,7 @@ export default function WebsiteDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href="/websites" className="text-sm text-slate-500 hover:underline">← Websites</Link>
-          <h1 className="text-xl font-semibold">{site.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{site.name}</h1>
           <a href={site.base_url} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-600 hover:underline">
             {site.base_url}
           </a>
@@ -92,7 +92,7 @@ export default function WebsiteDetailPage() {
 
       <MonitoringPanel websiteId={site.id} degradedMs={staff?.degraded_threshold_ms} archived={site.status === "archived"} />
 
-      <WebsiteAuditCard websiteId={site.id} auditDay={staff?.audit_day_of_month} archived={site.status === "archived"} />
+      <WebsiteAuditCard websiteId={site.id} auditDay={staff?.auto_audit ? staff.audit_day_of_month : undefined} archived={site.status === "archived"} />
 
       <ExpiryCard websiteId={site.id} />
 

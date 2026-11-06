@@ -1,7 +1,8 @@
 "use client";
 
+import { Bell } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, ErrorNote, Field, inputClass } from "@/components/ui";
+import { Button, Card, ErrorNote, Field, inputClass, PageHeader } from "@/components/ui";
 import { api, fmtDate, type ClientOrg, type NotificationLogRow, type NotificationRule, type Website } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -80,9 +81,9 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Notifications</h1>
+      <PageHeader title="Notifications" icon={<Bell size={20} />} />
       <ErrorNote message={error} />
-      {notice && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{notice}</p>}
+      {notice && <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">{notice}</p>}
       <p className="text-sm text-slate-600">
         Each website&apos;s own alert recipients (set on the website page) receive its alerts. Rules below add recipients
         for all websites, a client, or one website. A disabled website rule mutes that event for the website.
@@ -126,7 +127,7 @@ export default function NotificationsPage() {
         <Card title={`Rules (${rules.length})`}>
           {rules.length === 0 ? <p className="text-sm text-slate-500">No rules. Alerts go to each website&apos;s own recipients.</p> : (
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
+              <table className="sw-table">
                 <thead className="text-xs uppercase text-slate-500">
                   <tr><th className="py-2 pr-4">Event</th><th className="pr-4">Scope</th><th className="pr-4">Recipients</th>
                     <th className="pr-4">Enabled</th><th /></tr>
@@ -167,7 +168,7 @@ export default function NotificationsPage() {
       <Card title="Delivery log">
         {logs.length === 0 ? <p className="text-sm text-slate-500">No notifications yet.</p> : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Time</th><th className="pr-4">Event</th><th className="pr-4">Subject</th>
                   <th className="hidden pr-4 md:table-cell">Recipients</th><th className="pr-4">Status</th></tr>

@@ -118,6 +118,7 @@ export type WebsiteStaff = WebsiteBase & {
   expected_status_codes: number[];
   next_check_at: string | null;
   audit_day_of_month: number;
+  auto_audit: boolean;
   crawl_config: CrawlConfig;
   ssl_monitoring: boolean;
   notification_recipients: string[];
@@ -283,6 +284,8 @@ export type AuditRun = {
   finished_at: string | null;
   pages_crawled: number;
   error: string | null;
+  categories: string[] | null;
+  progress: { percent?: number; phase?: string; pages_crawled?: number; expected_s?: number | null; updated_at?: string };
   summary: {
     by_severity?: Record<Severity, number>;
     by_certainty?: Record<string, number>;
@@ -299,7 +302,7 @@ export type AuditRun = {
   };
 };
 
-export type CoverageRow = { check_key: string; label: string; status: "performed" | "partial" | "not_checked" | "not_applicable"; reason?: string; [k: string]: unknown };
+export type CoverageRow = { check_key: string; category?: string; label: string; status: "performed" | "partial" | "not_checked" | "not_applicable"; reason?: string; [k: string]: unknown };
 
 export type AuditDetail = AuditRun & { coverage: CoverageRow[]; config: Partial<CrawlConfig> };
 
@@ -467,4 +470,15 @@ export function fmtInterval(seconds: number): string {
   if (seconds % 3600 === 0) { const h = seconds / 3600; return h === 1 ? "every hour" : `every ${h} hours`; }
   if (seconds % 60 === 0) { const m = seconds / 60; return m === 1 ? "every minute" : `every ${m} minutes`; }
   return `every ${seconds} seconds`;
+}
+
+export type AuditCategory = { key: string; label: string; description: string; checks: { key: string; label: string }[] };
+
+/** Rounded time remaining: "40 s", "3 min", "1 h 5 min". */
+export function fmtEta(seconds: number): string {
+  if (seconds < 60) return `${Math.max(5, Math.round(seconds / 5) * 5)} s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return m ? `${h} h ${m} min` : `${h} h`;
 }

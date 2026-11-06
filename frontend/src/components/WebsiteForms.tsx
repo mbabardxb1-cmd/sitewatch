@@ -14,6 +14,7 @@ export type MonitoringValues = {
   degraded_threshold_ms: number;
   expected_status_codes: number[];
   audit_day_of_month: number;
+  auto_audit: boolean;
   ssl_monitoring: boolean;
   notification_recipients: string[];
 };
@@ -28,6 +29,7 @@ export const DEFAULT_MONITORING: MonitoringValues = {
   degraded_threshold_ms: 3000,
   expected_status_codes: [200],
   audit_day_of_month: 1,
+  auto_audit: true,
   ssl_monitoring: true,
   notification_recipients: [],
 };
@@ -45,26 +47,28 @@ function nearestStop(seconds: number): number {
 function IntervalSlider({ value, onChange }: { value: number; onChange: (seconds: number) => void }) {
   const idx = nearestStop(value);
   const last = INTERVAL_STOPS.length - 1;
-  const pct = (i: number) => (i / last) * 100;
+  // Thumb is 20px wide: its centre travels from 10px to (100% - 10px).
+  const at = (i: number) => `calc(10px + (100% - 20px) * ${i / last})`;
   return (
-    <div className="space-y-2 rounded-md border border-slate-200 p-3 sm:col-span-2 lg:col-span-3">
+    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4 sm:col-span-2 lg:col-span-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <label htmlFor="check-interval" className="text-sm font-medium text-slate-800">Check interval</label>
-        <span className="text-sm text-slate-600">Your website will be checked <strong className="text-slate-900">{fmtInterval(value)}</strong>.</span>
+        <label htmlFor="check-interval" className="text-sm font-medium text-slate-700">Check interval</label>
+        <span className="text-sm text-slate-600">
+          Your website will be checked <strong className="font-semibold text-brand-700">{fmtInterval(value)}</strong>
+        </span>
       </div>
-      <div className="relative pb-5">
-        <input id="check-interval" type="range" min={0} max={last} step={1} value={idx}
-               onChange={(e) => onChange(INTERVAL_STOPS[Number(e.target.value)])}
-               aria-valuetext={fmtInterval(value)}
-               className="h-2 w-full cursor-pointer accent-slate-900 disabled:cursor-not-allowed" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 text-xs text-slate-500" aria-hidden>
-          {INTERVAL_STOPS.map((s, i) => INTERVAL_LABELS[s] && (
-            <span key={s} className="absolute"
-                  style={{ left: `${pct(i)}%`, transform: i === 0 ? "none" : i === last ? "translateX(-100%)" : "translateX(-50%)" }}>
-              {INTERVAL_LABELS[s]}
-            </span>
-          ))}
-        </div>
+      <input id="check-interval" type="range" min={0} max={last} step={1} value={idx}
+             onChange={(e) => onChange(INTERVAL_STOPS[Number(e.target.value)])}
+             aria-valuetext={fmtInterval(value)}
+             className="sw-range block w-full disabled:cursor-not-allowed"
+             style={{ background: `linear-gradient(to right, rgb(79 70 229) ${(idx / last) * 100}%, rgb(226 232 240) ${(idx / last) * 100}%)` }} />
+      <div className="relative h-4 text-xs text-slate-500" aria-hidden>
+        {INTERVAL_STOPS.map((s, i) => INTERVAL_LABELS[s] && (
+          <span key={s} className={`absolute top-0 -translate-x-1/2 tabular-nums ${i === idx ? "font-semibold text-brand-700" : ""}`}
+                style={{ left: at(i) }}>
+            {INTERVAL_LABELS[s]}
+          </span>
+        ))}
       </div>
       <p className="text-xs text-slate-500">
         {value <= 300
@@ -73,6 +77,14 @@ function IntervalSlider({ value, onChange }: { value: number; onChange: (seconds
       </p>
     </div>
   );
+}
+
+/** Date of the next automatic audit for a given day of month (a site added after this month's day waits for next month). */
+function nextAuditDate(day: number): string {
+  const now = new Date();
+  let d = new Date(now.getFullYear(), now.getMonth(), day);
+  if (d <= now) d = new Date(now.getFullYear(), now.getMonth() + 1, day);
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
 }
 
 const splitList = (s: string) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
@@ -114,17 +126,36 @@ export function MonitoringFields({ v, set, disabled }: {
           set({ ...v, expected_status_codes: splitList(e.target.value).map(Number).filter((n) => !Number.isNaN(n)) });
         }} />
       </Field>
-      <Field label="Monthly audit day" hint="Day 1–28 of each month">
-        <input className={inputClass} type="number" min={1} max={28} value={v.audit_day_of_month} onChange={num("audit_day_of_month")} />
-      </Field>
+      <div className="space-y-1.5 text-sm">
+        <label className="flex items-center gap-2 font-medium text-slate-700">
+          <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" checked={v.auto_audit}
+                 onChange={(e) => set({ ...v, auto_audit: e.target.checked })} />
+          Automatic monthly audit
+        </label>
+        {v.auto_audit ? (
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-slate-600">on day</span>
+            <div className="w-20">
+              <input className={inputClass} type="number" min={1} max={28} value={v.audit_day_of_month}
+                     onChange={num("audit_day_of_month")} aria-label="Monthly audit day" />
+            </div>
+            <span className="whitespace-nowrap text-slate-600">of each month</span>
+          </div>
+        ) : null}
+        <span className="block text-xs text-slate-500">
+          {v.auto_audit
+            ? `Next automatic audit: ${nextAuditDate(v.audit_day_of_month)}. You can also run one at any time.`
+            : "Audits run only when you start one from Technical Audits."}
+        </span>
+      </div>
       <Field label="Alert recipients" hint="Comma-separated email addresses">
         <input className={inputClass} value={recips} onChange={(e) => {
           setRecips(e.target.value);
           set({ ...v, notification_recipients: splitList(e.target.value) });
         }} />
       </Field>
-      <label className="flex items-center gap-2 self-end text-sm">
-        <input type="checkbox" checked={v.ssl_monitoring} onChange={(e) => set({ ...v, ssl_monitoring: e.target.checked })} />
+      <label className="flex items-center gap-2 self-start pt-0.5 text-sm font-medium text-slate-700">
+        <input type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" checked={v.ssl_monitoring} onChange={(e) => set({ ...v, ssl_monitoring: e.target.checked })} />
         Monitor SSL certificate
       </label>
     </fieldset>

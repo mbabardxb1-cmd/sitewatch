@@ -36,6 +36,7 @@ PERMISSIONS: dict[str, str] = {
     "audit.read_detailed": "View full audit findings",
     "audit.run": "Trigger a manual audit",
     "audit.export": "Export audit results",
+    "audit.delete": "Delete an audit run and the issues only it found",
     "issue.read_summary": "View summarized issues",
     "issue.read_detailed": "View full issue details",
     "issue.manage": "Change issue status and assignee",

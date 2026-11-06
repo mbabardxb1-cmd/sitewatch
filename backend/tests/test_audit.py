@@ -100,7 +100,7 @@ def test_issues_resolve_only_when_verified_and_recur(db, website, sites):
     site, ext = sites
     B, E = site.base, ext.base
     run1 = run_audit(db, website)
-    issues = {i.url: i for i in db.scalars(select(Issue))}
+    issues = {i.url: i for i in db.scalars(select(Issue).where(Issue.check_key.like("broken_%")))}
     assert issues[f"{B}/missing"].status == "open"
 
     # Fix /missing, remove the link to the dead external page, break a new page.
@@ -109,7 +109,7 @@ def test_issues_resolve_only_when_verified_and_recur(db, website, sites):
     site.routes["/"] = {"body": root.replace('<a href="/about">', '<a href="/new-broken"><a href="/about">')}
     run2 = run_audit(db, website)
     db.expire_all()
-    issues = {i.url: i for i in db.scalars(select(Issue))}
+    issues = {i.url: i for i in db.scalars(select(Issue).where(Issue.check_key.like("broken_%")))}
     fixed = issues[f"{B}/missing"]
     assert fixed.status == "resolved" and fixed.resolved_verified_run_id == run2.id
     assert "no longer observed" in fixed.resolution_note
@@ -117,13 +117,17 @@ def test_issues_resolve_only_when_verified_and_recur(db, website, sites):
     assert dead.status == "resolved" and "no remaining references" in dead.resolution_note
     assert issues[f"{B}/new-broken"].status == "open" and issues[f"{B}/new-broken"].first_seen_run_id == run2.id
     assert issues[f"{B}/error500"].status == "open" and issues[f"{B}/error500"].occurrences == 2
-    assert run2.summary["counts"]["resolved"] >= 2 and run2.summary["counts"]["new"] == 1
+    assert run2.summary["counts"]["resolved"] >= 2
+    # The only new link problem is /new-broken (the now-served /missing page may add content findings).
+    new_link = [i for i in db.scalars(select(Issue).where(Issue.first_seen_run_id == run2.id))
+                if i.check_key.startswith("broken_")]
+    assert [i.url for i in new_link] == [f"{B}/new-broken"]
 
     # Break /missing again -> same issue re-opens and is counted as recurring.
     site.routes["/missing"] = {"status": 404, "body": "nope"}
     run3 = run_audit(db, website)
     db.expire_all()
-    again = db.scalar(select(Issue).where(Issue.url == f"{B}/missing"))
+    again = db.scalar(select(Issue).where(Issue.url == f"{B}/missing", Issue.check_key == "broken_internal_link"))
     assert again.status == "open" and again.reopened_count == 1 and again.resolution_note is None
     assert str(again.id) in run3.summary["recurring"]
     assert run1.id != run2.id != run3.id
@@ -233,6 +237,11 @@ def test_scheduled_runs_are_idempotent(db, make_client, make_website):
     due = make_website(acme, "Due", "https://due.example.com", audit_day_of_month=2)
     make_website(acme, "Later", "https://later.example.com", audit_day_of_month=20)
     make_website(acme, "Paused", "https://p.example.com", audit_day_of_month=1, status="paused")
+    off = make_website(acme, "Manual only", "https://manual.example.com", audit_day_of_month=1)
+    off.auto_audit = False
+    for w in db.scalars(select(Website)):
+        w.created_at = datetime(2026, 10, 1, tzinfo=UTC)
+    db.commit()
     now = datetime(2026, 11, 2, 9, 0, tzinfo=UTC)
     first = service.create_due_scheduled_runs(db, now)
     second = service.create_due_scheduled_runs(db, now)
@@ -240,6 +249,15 @@ def test_scheduled_runs_are_idempotent(db, make_client, make_website):
     run = db.get(AuditRun, first[0])
     assert (run.website_id, run.period, run.trigger) == (due.id, "2026-11", "scheduled")
     assert service.create_due_scheduled_runs(db, datetime(2026, 12, 2, tzinfo=UTC))  # next month creates again
+
+
+def test_site_added_after_audit_day_waits_for_next_month(db, make_client, make_website):
+    acme = make_client()
+    site = make_website(acme, "Fresh", "https://fresh.example.com", audit_day_of_month=1)
+    site.created_at = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+    db.commit()
+    assert service.create_due_scheduled_runs(db, datetime(2026, 11, 7, tzinfo=UTC)) == []
+    assert len(service.create_due_scheduled_runs(db, datetime(2026, 12, 1, 1, 0, tzinfo=UTC))) == 1
 
 
 def test_duplicate_task_delivery_runs_once(db, website):

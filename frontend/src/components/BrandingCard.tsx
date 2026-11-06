@@ -42,7 +42,7 @@ export function BrandingCard() {
       </form>
       <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
         <span>Logo: {b.has_logo ? "uploaded" : "none"}</span>
-        <label className="cursor-pointer rounded-md px-3 py-1.5 font-medium ring-1 ring-slate-300 hover:bg-slate-50">
+        <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50">
           Upload PNG/JPEG (max 1 MB)
           <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
         </label>

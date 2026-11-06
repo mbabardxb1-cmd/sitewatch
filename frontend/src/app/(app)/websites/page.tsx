@@ -1,8 +1,9 @@
 "use client";
 
+import { Globe, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Card, ErrorNote, HealthCell, inputClass } from "@/components/ui";
+import { Card, ErrorNote, HealthCell, PageHeader, inputClass } from "@/components/ui";
 import { api, fmtDate, fmtInterval, isStaffView, type ClientOrg, type Website } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -29,14 +30,12 @@ export default function WebsitesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Websites</h1>
-        {can("website.write") && (
-          <Link href="/websites/new" className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">
-            Add website
-          </Link>
-        )}
-      </div>
+      <PageHeader title="Websites" icon={<Globe size={20} />} description="Every monitored website, its current health and monitoring schedule."
+                  actions={can("website.write") && (
+                    <Link href="/websites/new" className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500">
+                      <Plus size={16} />Add website
+                    </Link>
+                  )} />
       <ErrorNote message={error} />
       <div className="grid gap-3 sm:grid-cols-3">
         <input className={inputClass} placeholder="Search name or URL" value={filters.q}
@@ -55,12 +54,12 @@ export default function WebsitesPage() {
           </select>
         )}
       </div>
-      <Card title={`${sites.length} website${sites.length === 1 ? "" : "s"}`}>
+      <Card title={`${sites.length} website${sites.length === 1 ? "" : "s"}`} flush>
         {sites.length === 0 ? (
-          <p className="text-sm text-slate-500">No websites match.</p>
+          <p className="p-5 text-sm text-slate-500">No websites match.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+            <table className="sw-table">
               <thead className="text-xs uppercase text-slate-500">
                 <tr><th className="py-2 pr-4">Website</th><th className="hidden pr-4 sm:table-cell">Client</th><th className="pr-4">Health</th>
                   <th className="hidden pr-4 md:table-cell">Monitoring</th><th className="hidden pr-4 md:table-cell">Last check</th></tr>

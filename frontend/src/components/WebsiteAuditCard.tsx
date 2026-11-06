@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RunStatus, SeverityCounts } from "@/components/AuditBits";
+import { AuditLauncher } from "@/components/AuditLauncher";
+import { AuditProgressCard } from "@/components/AuditProgress";
 import { Button, Card, ErrorNote, Field, SeverityBadge, inputClass } from "@/components/ui";
 import { api, fmtDate, SEVERITIES, type AuditRun, type IssueRow, type Severity } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -15,6 +17,7 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
   const [important, setImportant] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [launching, setLaunching] = useState(false);
 
   const load = useCallback(() => {
     api<IssueRow[]>(`/issues?website_id=${websiteId}&state=open`).then(setIssues).catch(() => undefined);
@@ -24,18 +27,14 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
     }
   }, [websiteId, staff]);
   useEffect(load, [load]);
+  const running = runs.filter((r) => r.status === "queued" || r.status === "running");
+  useEffect(() => {
+    if (!running.length) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [running.length, load]);
 
   const counts = SEVERITIES.reduce((acc, s) => ({ ...acc, [s]: issues.filter((i) => i.severity === s).length }), {} as Record<Severity, number>);
-
-  async function start() {
-    setError(null);
-    try {
-      await api(`/websites/${websiteId}/audits`, { method: "POST" });
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed");
-    }
-  }
 
   async function saveImportant(e: React.FormEvent) {
     e.preventDefault();
@@ -53,9 +52,12 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
   }
 
   return (
-    <Card title="Technical audit" actions={staff && can("audit.run") && !archived ? <Button variant="secondary" onClick={start}>Run audit now</Button> : undefined}>
+    <Card title="Technical audit" actions={staff && can("audit.run") && !archived && !launching && !running.length
+      ? <Button variant="secondary" onClick={() => setLaunching(true)}>Run audit now</Button> : undefined}>
       <ErrorNote message={error} />
       <div className="space-y-4">
+        {launching && <AuditLauncher websiteId={websiteId} onCancel={() => setLaunching(false)} onStarted={() => { setLaunching(false); load(); }} />}
+        {running.map((r) => <AuditProgressCard key={r.id} run={r} />)}
         <div>
           <h3 className="mb-1 text-sm font-medium">Open issues</h3>
           {issues.length === 0 ? <p className="text-sm text-slate-500">No open issues from audits.</p> : (
@@ -68,7 +70,7 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
         {staff && (
           <>
             <div>
-              <h3 className="mb-1 text-sm font-medium">Recent audits {auditDay && <span className="font-normal text-slate-500">· scheduled on day {auditDay} of each month</span>}</h3>
+              <h3 className="mb-1 text-sm font-medium">Recent audits {auditDay && <span className="font-normal text-slate-500">· automatic on day {auditDay} of each month</span>}</h3>
               {runs.length === 0 ? <p className="text-sm text-slate-500">No audits yet.</p> : (
                 <ul className="divide-y divide-slate-100 text-sm">
                   {runs.map((r) => (

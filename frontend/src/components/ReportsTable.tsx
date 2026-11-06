@@ -17,7 +17,7 @@ export function ReportsTable({ rows, onApprove, onWithdraw, showWebsite = true }
   }
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full text-left text-sm">
+      <table className="sw-table">
         <thead className="text-xs uppercase text-slate-500">
           <tr>
             <th className="py-2 pr-4">Period</th>
@@ -54,7 +54,7 @@ export function ReportsTable({ rows, onApprove, onWithdraw, showWebsite = true }
               <td className="py-2 pr-4">
                 <div className="flex flex-wrap justify-end gap-2">
                   {r.status === "ready" && (
-                    <a className="rounded-md px-3 py-1.5 text-sm font-medium ring-1 ring-slate-300 hover:bg-slate-50"
+                    <a className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
                        href={`/api/v1/reports/${r.id}/download`}>Download PDF</a>
                   )}
                   {can("report.approve") && r.kind === "client" && r.status === "ready" && !r.approved_for_client && onApprove && (

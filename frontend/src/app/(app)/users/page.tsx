@@ -1,7 +1,8 @@
 "use client";
 
+import { Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, ErrorNote, inputClass } from "@/components/ui";
+import { Button, Card, ErrorNote, inputClass, PageHeader } from "@/components/ui";
 import { api, type ClientOrg, type UserRow } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -61,7 +62,7 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Users &amp; Permissions</h1>
+      <PageHeader title="Users & Permissions" icon={<Users size={20} />} description="Invite team members and clients, and control what each role can see." />
       <ErrorNote message={error} />
       <Card title="Add user">
         <form onSubmit={create} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -93,7 +94,7 @@ export default function UsersPage() {
       </Card>
       <Card title={`${users.length} users`}>
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
+          <table className="sw-table">
             <thead className="text-xs uppercase text-slate-500">
               <tr><th className="py-2 pr-4">Email</th><th className="pr-4">Name</th><th className="pr-4">Role</th>
                 <th className="pr-4">Status</th><th className="pr-4">Last login</th><th /></tr>
