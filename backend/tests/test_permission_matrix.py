@@ -123,6 +123,7 @@ ROUTES = {
     ("POST", "/api/v1/websites/{website_id}/audits"): (["audit.run"], True, None),
     ("GET", "/api/v1/audit-categories"): (["audit.read_detailed"], False, None),
     ("DELETE", "/api/v1/audits/{run_id}"): (["audit.delete"], True, None),
+    ("POST", "/api/v1/audits/{run_id}/stop"): (["audit.run"], True, None),
     ("GET", "/api/v1/audits/{run_id}"): (["audit.read_detailed"], True, None),
     ("GET", "/api/v1/audits/{run_id}/findings"): (["audit.read_detailed"], True, None),
     ("GET", "/api/v1/audits/{run_id}/compare"): (["audit.read_detailed"], True, None),

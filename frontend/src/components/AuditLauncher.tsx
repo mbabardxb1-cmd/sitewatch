@@ -1,7 +1,8 @@
 "use client";
 
 import {
-  Check, FileSearch, Gauge, Image as ImageIcon, Link2, Lock, Play, Smartphone, SquarePen, type LucideIcon,
+  Check, FileSearch, Gauge, Image as ImageIcon, Layers, Link2, Lock, Play, Search, SlidersHorizontal, Smartphone,
+  SquarePen, Wrench, type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { Button, ErrorNote, inputClass } from "@/components/ui";
@@ -17,6 +18,24 @@ export const AUDIT_CATEGORIES: { key: string; label: string; description: string
   { key: "mobile", label: "Mobile & accessibility", description: "Mobile viewport, page language and labelled form fields.", icon: Smartphone },
 ];
 export const CATEGORY_LABEL = Object.fromEntries(AUDIT_CATEGORIES.map((c) => [c.key, c.label]));
+const ALL = AUDIT_CATEGORIES.map((c) => c.key);
+
+/** Ready-made audit types. "Custom" is any other combination. */
+export const AUDIT_PRESETS: { key: string; label: string; description: string; categories: string[]; icon: LucideIcon }[] = [
+  { key: "full", label: "Full audit", description: "Everything: technical, SEO, security, forms and accessibility.", categories: ALL, icon: Layers },
+  { key: "technical", label: "Technical audit", description: "Broken links, redirects, speed, SSL & security, forms.",
+    categories: ["links", "performance", "security", "forms"], icon: Wrench },
+  { key: "seo", label: "SEO audit", description: "Titles, descriptions, headings, sitemap, indexing, links, images, mobile.",
+    categories: ["seo", "links", "images", "mobile"], icon: Search },
+];
+
+const same = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+/** "SEO audit", "Technical audit", "Full audit" or "Custom audit" for a run's category list (null = all). */
+export function auditKind(categories: string[] | null): string {
+  const cats = categories ?? ALL;
+  return AUDIT_PRESETS.find((p) => same(p.categories, cats))?.label ?? "Custom audit";
+}
 
 export function AuditLauncher({ sites, websiteId, onStarted, onCancel }: {
   sites?: Website[]; websiteId?: string; onStarted: (run: AuditRun) => void; onCancel?: () => void;
@@ -26,6 +45,8 @@ export function AuditLauncher({ sites, websiteId, onStarted, onCancel }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const all = selected.size === AUDIT_CATEGORIES.length;
+  const chosen = ALL.filter((k) => selected.has(k));
+  const preset = AUDIT_PRESETS.find((p) => same(p.categories, chosen));
 
   function toggle(key: string) {
     const next = new Set(selected);
@@ -59,8 +80,35 @@ export function AuditLauncher({ sites, websiteId, onStarted, onCancel }: {
         </label>
       )}
       <div>
+        <span className="mb-2 block text-sm font-medium text-slate-700">Audit type</span>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {AUDIT_PRESETS.map(({ key, label, description, categories, icon: Icon }) => {
+            const on = preset?.key === key;
+            return (
+              <button key={key} type="button" aria-pressed={on} onClick={() => setSelected(new Set(categories))}
+                      className={`flex items-start gap-3 rounded-xl border p-3.5 text-left transition ${
+                        on ? "border-brand-500 bg-brand-600 text-white shadow-sm" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`}>
+                <Icon size={20} className={`mt-0.5 shrink-0 ${on ? "text-white" : "text-brand-600"}`} />
+                <span>
+                  <span className="block text-sm font-semibold">{label}</span>
+                  <span className={`mt-0.5 block text-xs leading-relaxed ${on ? "text-brand-100" : "text-slate-500"}`}>{description}</span>
+                </span>
+              </button>
+            );
+          })}
+          <div className={`flex items-start gap-3 rounded-xl border p-3.5 ${
+            !preset ? "border-brand-500 bg-brand-600 text-white shadow-sm" : "border-dashed border-slate-300 text-slate-500"}`}>
+            <SlidersHorizontal size={20} className={`mt-0.5 shrink-0 ${!preset ? "text-white" : "text-slate-400"}`} />
+            <span>
+              <span className="block text-sm font-semibold">Custom audit</span>
+              <span className={`mt-0.5 block text-xs leading-relaxed ${!preset ? "text-brand-100" : ""}`}>Pick the areas below.</span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <div>
         <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-sm font-medium text-slate-700">What should be checked?</span>
+          <span className="text-sm font-medium text-slate-700">What will be checked</span>
           <button type="button" className="text-sm font-medium text-brand-600 hover:text-brand-500"
                   onClick={() => setSelected(all ? new Set() : new Set(AUDIT_CATEGORIES.map((c) => c.key)))}>
             {all ? "Clear all" : "Select all"}
@@ -91,7 +139,8 @@ export function AuditLauncher({ sites, websiteId, onStarted, onCancel }: {
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={start} disabled={!siteId || selected.size === 0 || busy}>
-          <Play size={16} />{busy ? "Starting…" : all ? "Start full audit" : `Start audit (${selected.size} of ${AUDIT_CATEGORIES.length})`}
+          <Play size={16} />{busy ? "Starting…" : preset ? `Start ${preset.label}`
+            : `Start custom audit (${selected.size} of ${AUDIT_CATEGORIES.length} areas)`}
         </Button>
         {onCancel && <Button variant="ghost" onClick={onCancel}>Cancel</Button>}
         <span className="text-xs text-slate-500">The site is crawled politely in the background; you can leave this page.</span>

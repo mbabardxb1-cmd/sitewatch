@@ -4,7 +4,7 @@ import { History, Plus, ScanSearch, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RunStatus, SeverityCounts } from "@/components/AuditBits";
-import { AuditLauncher, CATEGORY_LABEL } from "@/components/AuditLauncher";
+import { AuditLauncher, auditKind, CATEGORY_LABEL } from "@/components/AuditLauncher";
 import { AuditProgressCard } from "@/components/AuditProgress";
 import { Button, Card, EmptyState, ErrorNote, Notice, PageHeader } from "@/components/ui";
 import { api, fmtDate, type AuditRun, type Website } from "@/lib/api";
@@ -72,7 +72,7 @@ export default function AuditsPage() {
         <section className="space-y-3">
           <h2 className="text-sm font-semibold text-slate-900">In progress</h2>
           <div className="grid gap-4 lg:grid-cols-2">
-            {running.map((r) => <AuditProgressCard key={r.id} run={r} />)}
+            {running.map((r) => <AuditProgressCard key={r.id} run={r} onChanged={load} />)}
           </div>
         </section>
       )}
@@ -86,7 +86,7 @@ export default function AuditsPage() {
           <div className="overflow-x-auto">
             <table className="sw-table">
               <thead>
-                <tr><th>Website</th><th>Type</th><th>Status</th>
+                <tr><th>Website</th><th>Audit</th><th>Status</th>
                   <th className="hidden text-right sm:table-cell">Pages</th><th>Issues found</th>
                   <th className="hidden md:table-cell">New / resolved</th><th className="hidden md:table-cell">Finished</th>
                   {can("audit.delete") && <th><span className="sr-only">Actions</span></th>}</tr>
@@ -96,10 +96,12 @@ export default function AuditsPage() {
                   <tr key={r.id} className="align-top">
                     <td><Link href={`/audits/${r.id}`} className="font-medium hover:text-brand-600">{r.website_name}</Link></td>
                     <td>
-                      {r.trigger === "scheduled" ? `Monthly ${r.period}` : "Manual"}
+                      <span className="font-medium text-slate-900">{auditKind(r.categories)}</span>
                       <div className="text-xs text-slate-500">
-                        {r.categories ? r.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(", ") : "All checks"}
+                        {r.trigger === "scheduled" ? `Automatic, ${r.period}` : "Started manually"}
+                        {auditKind(r.categories) === "Custom audit" && r.categories && `: ${r.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(", ")}`}
                       </div>
+                      {r.status === "cancelled" && r.error && <div className="text-xs text-slate-500">{r.error}</div>}
                     </td>
                     <td><RunStatus run={r} /></td>
                     <td className="hidden text-right tabular-nums sm:table-cell">{r.pages_crawled || "—"}</td>

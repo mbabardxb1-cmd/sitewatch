@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { RunStatus } from "@/components/AuditBits";
-import { AUDIT_CATEGORIES, CATEGORY_LABEL } from "@/components/AuditLauncher";
+import { AUDIT_CATEGORIES, auditKind, CATEGORY_LABEL } from "@/components/AuditLauncher";
 import { AuditProgressCard } from "@/components/AuditProgress";
 import { Card, CertaintyLabel, CoverageBadge, ErrorNote, Notice, SeverityBadge, Stat, inputClass } from "@/components/ui";
 import {
@@ -70,7 +70,7 @@ export default function AuditDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href="/audits" className="text-sm font-medium text-brand-600 hover:text-brand-500">← Technical Audits</Link>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{run.website_name}: {run.trigger === "scheduled" ? `monthly audit ${run.period}` : "manual audit"}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{run.website_name}: {auditKind(run.categories)}{run.trigger === "scheduled" ? ` (automatic, ${run.period})` : ""}</h1>
           <p className="text-sm text-slate-600">
             <RunStatus run={run} /> · started {fmtDate(run.started_at, "—")} · finished {fmtDate(run.finished_at, "—")}
             {s.duration_s !== undefined && ` · ${s.duration_s}s, ${s.requests} requests`}
@@ -86,7 +86,8 @@ export default function AuditDetailPage() {
       </div>
 
       {run.status === "failed" && <ErrorNote message={`The audit failed: ${run.error}`} />}
-      {(run.status === "queued" || run.status === "running") && <AuditProgressCard run={run} />}
+      {(run.status === "queued" || run.status === "running") && <AuditProgressCard run={run} onChanged={() => location.reload()} />}
+      {run.status === "cancelled" && <Notice tone="warning">{run.error ?? "This audit was stopped"}. Nothing it found was kept and no issues were changed.</Notice>}
       {run.categories && (
         <Notice>This audit covered only: <strong>{run.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(", ")}</strong>. Other checks were skipped and none of their issues were changed.</Notice>
       )}

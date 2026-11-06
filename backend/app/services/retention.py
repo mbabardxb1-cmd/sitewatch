@@ -55,7 +55,7 @@ def run_retention(db: Session, now: datetime | None = None) -> dict[str, int]:
             .order_by(AuditRun.website_id, AuditRun.created_at.desc()))
     out["audit_runs"] = db.execute(delete(AuditRun).where(
         AuditRun.created_at < audit_cutoff, AuditRun.id.not_in(keep.scalar_subquery()),
-        AuditRun.status.in_(("completed", "partial", "failed")))).rowcount or 0
+        AuditRun.status.in_(("completed", "partial", "failed", "cancelled")))).rowcount or 0
 
     log_cutoff = now - timedelta(days=setting_int(db, "retention.notification_logs_days"))
     out["notification_logs"] = db.execute(delete(NotificationLog).where(

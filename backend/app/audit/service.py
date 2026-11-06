@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.audit.checks import CATEGORIES, CHECKS, AuditOutcome, evaluate
-from app.audit.crawler import Crawler
+from app.audit.crawler import AuditCancelled, Crawler
 from app.models import AuditFinding, AuditRun, Client, Issue, IssueComment, MonitoredUrl, Website
 from app.netsafe.http import BlockedTargetError, DnsResolutionError
 from app.netsafe.tls import inspect_certificate
@@ -87,13 +87,40 @@ def create_manual_run(db: Session, site: Website, user_id, categories: list[str]
     return run
 
 
-def fail_stuck_runs(db: Session, older_than: timedelta = timedelta(hours=3)) -> int:
-    cutoff = datetime.now(UTC) - older_than
-    n = db.execute(update(AuditRun).where(AuditRun.status == "running", AuditRun.started_at < cutoff)
-                   .values(status="failed", finished_at=datetime.now(UTC),
-                           error="Audit did not finish (worker stopped or timed out)")).rowcount
+STALE_AFTER = timedelta(minutes=15)
+
+
+def fail_stuck_runs(db: Session, older_than: timedelta = timedelta(hours=3), now: datetime | None = None) -> int:
+    """Fail runs that are no longer being worked on: over the time limit, or silent (no progress
+    heartbeat) for STALE_AFTER, which is what a worker restart in the middle of a crawl leaves."""
+    now = now or datetime.now(UTC)
+    n = 0
+    for run in db.scalars(select(AuditRun).where(AuditRun.status == "running").with_for_update(skip_locked=True)):
+        beat = None
+        if (run.progress or {}).get("updated_at"):
+            try:
+                beat = datetime.fromisoformat(run.progress["updated_at"])
+            except ValueError:
+                beat = None
+        beat = beat or run.started_at or run.created_at
+        if (run.started_at and run.started_at < now - older_than) or beat < now - STALE_AFTER:
+            run.status, run.finished_at = "failed", now
+            run.error = "Audit did not finish (the worker stopped or restarted, or it ran too long). Start it again."
+            n += 1
     db.commit()
-    return n or 0
+    return n
+
+
+def stop_run(db: Session, run: AuditRun, who: str) -> None:
+    """Stop a queued or running audit. A running crawl notices within a few seconds (its next
+    progress update finds the run no longer 'running') and discards its partial results."""
+    if run.status not in ("queued", "running"):
+        raise ValueError("Only a queued or running audit can be stopped.")
+    was = run.status
+    run.status, run.finished_at = "cancelled", datetime.now(UTC)
+    run.error = f"Stopped by {who}" + (" before it started" if was == "queued" else "")
+    run.progress = {**(run.progress or {}), "phase": "Stopped"}
+    db.flush()
 
 
 # ---- execution --------------------------------------------------------------------------
@@ -116,7 +143,8 @@ def expected_duration_s(db: Session, website_id) -> float | None:
 
 
 class ProgressWriter:
-    """Persists crawler progress in its own short transactions, at most every 2 seconds."""
+    """Persists crawler progress in its own short transactions, at most every 2 seconds.
+    Raises AuditCancelled when the run is no longer 'running' (a person stopped it)."""
 
     def __init__(self, run_id, expected_s: float | None, min_interval: float = 2.0):
         self.run_id, self.expected_s, self.min_interval = run_id, expected_s, min_interval
@@ -130,9 +158,11 @@ class ProgressWriter:
         from app.db import SessionLocal
 
         with SessionLocal() as s:
-            s.execute(update(AuditRun).where(AuditRun.id == self.run_id, AuditRun.status == "running").values(
-                progress={**p, "expected_s": self.expected_s, "updated_at": datetime.now(UTC).isoformat()}))
+            n = s.execute(update(AuditRun).where(AuditRun.id == self.run_id, AuditRun.status == "running").values(
+                progress={**p, "expected_s": self.expected_s, "updated_at": datetime.now(UTC).isoformat()})).rowcount
             s.commit()
+        if n == 0:
+            raise AuditCancelled()
 
 
 def execute_run(db: Session, run_id, crawler_factory=Crawler, progress=None) -> AuditRun | None:
@@ -160,11 +190,21 @@ def execute_run(db: Session, run_id, crawler_factory=Crawler, progress=None) -> 
             except (BlockedTargetError, DnsResolutionError, OSError) as e:
                 cert_error = str(e)[:300] or type(e).__name__
         outcome = evaluate(cr, config, cert, cert_error, is_https, categories=categories)
+        # Lock the run: if it was stopped while we were crawling, keep nothing.
+        db.refresh(run, with_for_update=True)
+        if run.status != "running":
+            raise AuditCancelled()
         notifications = persist_outcome(db, run, site, outcome, cr)
+    except AuditCancelled:
+        db.rollback()
+        log.info("Audit %s was stopped; partial results discarded", run_id)
+        return db.get(AuditRun, run_id)
     except Exception as e:  # noqa: BLE001
         log.exception("Audit %s failed", run_id)
         db.rollback()
         run = db.get(AuditRun, run_id)
+        if run.status != "running":  # stopped meanwhile: keep the person's decision
+            return run
         run.status, run.error, run.finished_at = "failed", f"{type(e).__name__}: {e}"[:1000], datetime.now(UTC)
         db.commit()
         return run

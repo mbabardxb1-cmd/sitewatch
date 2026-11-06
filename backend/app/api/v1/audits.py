@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.audit.checks import CATEGORIES, CATEGORY_OF, CHECKS
-from app.audit.service import AuditBusy, create_manual_run, delete_run
+from app.audit.service import AuditBusy, create_manual_run, delete_run, stop_run
 from app.auth.deps import client_ip, require
 from app.auth.scope import get_website_or_404, not_found, website_scope_clause
 from app.db import get_db
@@ -116,6 +116,20 @@ def start_audit(website_id: uuid.UUID, request: Request, body: StartAuditIn | No
 
     run_audit.delay(str(run.id))
     db.refresh(run)
+    return _run_out(run, site)
+
+
+@router.post("/audits/{run_id}/stop", response_model=RunOut)
+def stop_audit(run_id: uuid.UUID, request: Request, db: Session = Depends(get_db),
+               user: User = Depends(require("audit.run"))):
+    run, site = _get_run(db, user, run_id)
+    db.refresh(run, with_for_update=True)
+    try:
+        stop_run(db, run, user.email)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    record(db, user.id, "audit.stop", "website", site.id, client_ip(request), run_id=str(run_id))
+    db.commit()
     return _run_out(run, site)
 
 

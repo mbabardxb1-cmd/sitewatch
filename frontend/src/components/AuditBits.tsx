@@ -7,13 +7,14 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-red-50 text-red-700 ring-red-600/20",
   running: "bg-brand-50 text-brand-700 ring-brand-600/20",
   queued: "bg-slate-100 text-slate-600 ring-slate-500/15",
+  cancelled: "bg-slate-100 text-slate-600 ring-slate-500/15",
 };
 
 export function RunStatus({ run }: { run: AuditRun }) {
   return (
     <span className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${STATUS_STYLE[run.status] ?? ""}`}
           title={run.error ?? undefined}>
-      {run.status === "partial" ? "Partial" : run.status}
+      {run.status === "partial" ? "Partial" : run.status === "cancelled" ? "Stopped" : run.status}
     </span>
   );
 }

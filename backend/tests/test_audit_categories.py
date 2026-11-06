@@ -100,3 +100,60 @@ def test_start_audit_api_validates_categories_and_delete(db, make_client, make_w
     db.expire_all()
     assert db.get(AuditRun, run_id) is None
     assert db.scalar(select(Issue.id).where(Issue.website_id == w.id)) is None
+
+
+def test_stop_queued_and_running_audits(db, make_client, make_website, as_user, form_site):
+    from datetime import UTC, datetime
+
+    from app.db import SessionLocal
+
+    w = make_website(make_client(), "Forms", form_site.base + "/", crawl_config=dict(FAST))
+    dev = as_user("super_admin")
+    # queued -> stopped before it starts; the worker then skips it
+    run = service.create_manual_run(db, w, None)
+    db.commit()
+    r = dev.post(f"/api/v1/audits/{run.id}/stop")
+    assert r.status_code == 200 and r.json()["status"] == "cancelled" and "before it started" in r.json()["error"]
+    assert service.execute_run(db, run.id) is None
+    assert dev.post(f"/api/v1/audits/{run.id}/stop").status_code == 409
+
+    # running -> the crawl notices at its next progress update and keeps nothing
+    run = service.create_manual_run(db, w, None)
+    db.commit()
+    writer = service.ProgressWriter(run.id, None, min_interval=0)
+    calls = []
+
+    def progress(p):
+        calls.append(p)
+        if len(calls) == 3:
+            with SessionLocal() as s:
+                service.stop_run(s, s.get(AuditRun, run.id), "tester@example.com")
+                s.commit()
+        writer(p)
+
+    service.execute_run(db, run.id, progress=progress)
+    db.expire_all()
+    stopped = db.get(AuditRun, run.id)
+    assert stopped.status == "cancelled" and stopped.error == "Stopped by tester@example.com"
+    assert len(calls) == 3  # crawl stopped right away
+    assert db.scalar(select(AuditFinding.id).where(AuditFinding.audit_run_id == run.id)) is None
+    assert db.scalar(select(Issue.id).where(Issue.website_id == w.id)) is None
+    assert stopped.finished_at <= datetime.now(UTC)
+
+
+def test_orphaned_running_audit_is_failed_after_heartbeat_stops(db, make_client, make_website):
+    from datetime import UTC, datetime, timedelta
+
+    w = make_website(make_client(), "Site", "https://site.example.com/")
+    now = datetime.now(UTC)
+    old = AuditRun(website_id=w.id, trigger="manual", status="running", started_at=now - timedelta(minutes=40),
+                   progress={"percent": 30, "updated_at": (now - timedelta(minutes=20)).isoformat()})
+    alive = AuditRun(website_id=w.id, trigger="manual", status="running", started_at=now - timedelta(minutes=40),
+                     progress={"percent": 30, "updated_at": (now - timedelta(minutes=1)).isoformat()})
+    never = AuditRun(website_id=w.id, trigger="manual", status="running", started_at=now - timedelta(minutes=16), progress={})
+    db.add_all([old, alive, never])
+    db.commit()
+    assert service.fail_stuck_runs(db) == 2
+    db.expire_all()
+    assert (old.status, alive.status, never.status) == ("failed", "running", "failed")
+    assert "restarted" in old.error

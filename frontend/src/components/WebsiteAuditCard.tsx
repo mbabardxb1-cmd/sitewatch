@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RunStatus, SeverityCounts } from "@/components/AuditBits";
-import { AuditLauncher } from "@/components/AuditLauncher";
+import { AuditLauncher, auditKind } from "@/components/AuditLauncher";
 import { AuditProgressCard } from "@/components/AuditProgress";
 import { Button, Card, ErrorNote, Field, SeverityBadge, inputClass } from "@/components/ui";
 import { api, fmtDate, SEVERITIES, type AuditRun, type IssueRow, type Severity } from "@/lib/api";
@@ -57,7 +57,7 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
       <ErrorNote message={error} />
       <div className="space-y-4">
         {launching && <AuditLauncher websiteId={websiteId} onCancel={() => setLaunching(false)} onStarted={() => { setLaunching(false); load(); }} />}
-        {running.map((r) => <AuditProgressCard key={r.id} run={r} />)}
+        {running.map((r) => <AuditProgressCard key={r.id} run={r} onChanged={load} />)}
         <div>
           <h3 className="mb-1 text-sm font-medium">Open issues</h3>
           {issues.length === 0 ? <p className="text-sm text-slate-500">No open issues from audits.</p> : (
@@ -76,7 +76,7 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
                   {runs.map((r) => (
                     <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                       <Link href={`/audits/${r.id}`} className="font-medium hover:underline">{fmtDate(r.finished_at ?? r.created_at)}</Link>
-                      <span>{r.trigger === "scheduled" ? "Monthly" : "Manual"}</span>
+                      <span>{auditKind(r.categories)}{r.trigger === "scheduled" ? " (automatic)" : ""}</span>
                       <RunStatus run={r} />
                       {(r.status === "completed" || r.status === "partial") && <SeverityCounts run={r} />}
                     </li>

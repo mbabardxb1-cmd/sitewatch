@@ -14,6 +14,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
+import logging
+
 import httpx
 
 from app.audit.htmlparse import PageFacts, parse_html
@@ -34,6 +36,7 @@ from app.netsafe.http import (
     safe_fetch,
 )
 
+log = logging.getLogger("sitewatch.audit")
 MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_EXTERNAL_CHECKS = 300
 MAX_IMAGE_CHECKS = 500
@@ -133,6 +136,10 @@ def compile_exclusions(patterns: list[str]):
     return excluded
 
 
+class AuditCancelled(Exception):
+    """Raised from the progress callback when a person stopped the audit."""
+
+
 class Crawler:
     def __init__(self, base_url: str, config: dict, important_urls: list[str] | None = None,
                  sleep=time.sleep, monotonic=time.monotonic, categories: set[str] | None = None, progress=None):
@@ -171,8 +178,10 @@ class Crawler:
         try:
             self._progress_cb({"percent": round(min(99.0, done), 1), "phase": label,
                                "pages_crawled": len(self.result.pages), "requests": self.result.requests_made})
-        except Exception:  # noqa: BLE001
-            pass
+        except AuditCancelled:
+            raise
+        except Exception:  # noqa: BLE001 - progress is cosmetic; never fail a crawl over it
+            log.warning("Could not record audit progress", exc_info=True)
 
     # ---- helpers ------------------------------------------------------------------------
     def is_internal(self, url: str) -> bool:
@@ -243,6 +252,7 @@ class Crawler:
         queue = list(declared or [urljoin(self.base_url, "/sitemap.xml")])
         seen: set[str] = set()
         while queue and len(seen) < MAX_SITEMAP_FILES:
+            self.progress(fraction=0.2 + 0.8 * len(seen) / MAX_SITEMAP_FILES)
             sm = queue.pop(0)
             if sm in seen:
                 continue
@@ -345,6 +355,7 @@ class Crawler:
     def check_sitemap_urls(self) -> None:
         n = 0
         for url in self.result.sitemap_urls:
+            self.progress(fraction=n / MAX_SITEMAP_URL_CHECKS)
             if url in self.result.pages or not self.is_internal(url):
                 continue
             if self.result.robots and not self.result.robots.can_fetch(url):
@@ -367,13 +378,15 @@ class Crawler:
         for i, url in enumerate(sorted(targets)):
             if i >= MAX_FORM_ACTION_CHECKS:
                 break
+            self.progress(fraction=i / min(len(targets), MAX_FORM_ACTION_CHECKS))
             if self.result.robots and not self.result.robots.can_fetch(url):
                 continue
             page = self.result.pages.get(url)
             self.result.form_actions[url] = page.fetch if page else self.check_link(url)
 
     def check_important(self) -> None:
-        for url in self.important_urls:
+        for i, url in enumerate(self.important_urls):
+            self.progress(fraction=i / len(self.important_urls))
             page = self.result.pages.get(url)
             self.result.important[url] = page.fetch if page else self.check_link(url)
 

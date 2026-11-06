@@ -11,7 +11,7 @@ from app.models.base import Base, Timestamps, UUIDPk, fk, str_enum
 
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 CERTAINTY = ("confirmed", "warning", "could_not_check")
-AUDIT_STATUS = ("queued", "running", "completed", "partial", "failed")
+AUDIT_STATUS = ("queued", "running", "completed", "partial", "failed", "cancelled")
 ISSUE_STATUS = ("open", "acknowledged", "in_progress", "resolved_pending_verification", "resolved")
 
 

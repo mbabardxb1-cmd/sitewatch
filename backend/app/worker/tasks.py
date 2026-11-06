@@ -172,10 +172,17 @@ def schedule_audits() -> int:
 
 @celery.task
 def fail_stuck_audits() -> int:
+    """Fail orphaned runs and re-send queued runs whose task message was lost (e.g. restart)."""
     from app.audit.service import fail_stuck_runs
+    from app.models import AuditRun
 
     with SessionLocal() as db:
-        return fail_stuck_runs(db)
+        n = fail_stuck_runs(db)
+        stale = list(db.scalars(select(AuditRun.id).where(
+            AuditRun.status == "queued", AuditRun.created_at < datetime.now(UTC) - timedelta(minutes=5))))
+    for rid in stale:
+        run_audit.delay(str(rid))  # claim_run() makes duplicates harmless
+    return n
 
 
 # ---- Domain / hosting / SSL expiry ---------------------------------------------------------

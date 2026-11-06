@@ -1,10 +1,11 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, Square } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CATEGORY_LABEL } from "@/components/AuditLauncher";
-import { fmtEta, type AuditRun } from "@/lib/api";
+import { auditKind, CATEGORY_LABEL } from "@/components/AuditLauncher";
+import { api, fmtEta, type AuditRun } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 /** Circular progress indicator. `percent` null = indeterminate (spinning arc). */
 export function ProgressRing({ percent, size = 96, stroke = 8, children }: {
@@ -64,9 +65,25 @@ export function estimate(run: AuditRun, now: number) {
   return { percent: shown, remaining, label: run.progress?.phase || "Starting" };
 }
 
-export function AuditProgressCard({ run }: { run: AuditRun }) {
+export function AuditProgressCard({ run, onChanged }: { run: AuditRun; onChanged?: () => void }) {
   const now = useNow();
+  const { can } = useAuth();
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { percent, remaining, label } = estimate(run, now);
+
+  async function stop() {
+    if (!confirm(`Stop the ${auditKind(run.categories).toLowerCase()} of ${run.website_name}?\n\nNothing found so far is kept, and existing issues are not changed.`)) return;
+    setStopping(true);
+    setError(null);
+    try {
+      await api(`/audits/${run.id}/stop`, { method: "POST" });
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed");
+      setStopping(false);
+    }
+  }
   return (
     <div className="flex items-center gap-5 rounded-xl border border-brand-100 bg-gradient-to-br from-white to-brand-50/60 p-4 shadow-card">
       <ProgressRing percent={percent}>
@@ -81,7 +98,7 @@ export function AuditProgressCard({ run }: { run: AuditRun }) {
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />{run.status === "queued" ? "Queued" : "Running"}
           </span>
         </div>
-        <p className="text-sm text-slate-600">{label}</p>
+        <p className="text-sm text-slate-600">{auditKind(run.categories)} · {label}</p>
         <p className="text-sm text-slate-500">
           {run.status === "queued" ? "Starts in a moment" :
             remaining === null ? "Estimating time remaining…" :
@@ -89,7 +106,14 @@ export function AuditProgressCard({ run }: { run: AuditRun }) {
           {(run.progress?.pages_crawled ?? 0) > 0 && <> · {run.progress.pages_crawled} pages checked</>}
         </p>
         {run.categories && <p className="text-xs text-slate-400">Checking: {run.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(", ")}</p>}
+        {error && <p className="text-xs text-red-700">{error}</p>}
       </div>
+      {can("audit.run") && (
+        <button onClick={stop} disabled={stopping} title="Stop this audit"
+                className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-50 disabled:opacity-50">
+          <Square size={12} fill="currentColor" />{stopping ? "Stopping…" : "Stop"}
+        </button>
+      )}
     </div>
   );
 }
