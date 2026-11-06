@@ -1,9 +1,11 @@
-"""Render a report snapshot (see data.py) to PDF with ReportLab.
+"""Render a report snapshot (see data.py) to PDF with ReportLab, in the agency's slide-style format.
 
-Layout: cover + overall status + executive summary, then
-  1. Monitoring results (availability, response time, technical audit, issues, domain/hosting/SSL)
-  2. Maintenance work performed (recorded by the team; separate from monitoring)
-  3. Recommendations   4. Comparison with the previous month   5. Notes on method
+Layout (16:9 landscape pages):
+  cover (black, white logo, client, report title) ->
+  monthly summary -> maintenance work (task table) -> uptime & performance -> technical audit & issues
+  -> domain, hosting & SSL -> recommendations & comparison -> notes on method.
+Content pages are white with the logo bottom-left and the company website bottom-right.
+Tables: black header row with white text, light grey grid, status in green.
 All text derived from websites/users is escaped before it reaches ReportLab's markup parser.
 """
 import io
@@ -14,37 +16,53 @@ from xml.sax.saxutils import escape
 from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.shapes import Drawing, String
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
-from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (
-    Image,
+    BaseDocTemplate,
+    CondPageBreak,
+    Frame,
     KeepTogether,
+    NextPageTemplate,
     PageBreak,
+    PageTemplate,
     Paragraph,
-    SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
 )
 
-FONT_DIRS = ["/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/dejavu"]
-INK, MUTED, RULE, SURFACE = colors.HexColor("#0f172a"), colors.HexColor("#475569"), colors.HexColor("#e2e8f0"), colors.HexColor("#f8fafc")
-SERIES = colors.HexColor("#2a78d6")
+from app.reports.logo import Logo
+
+PAGE = (960, 540)  # 13.33 x 7.5 in, the 16:9 slide size
+MARGIN_X = 60
+CONTENT_W = PAGE[0] - 2 * MARGIN_X
+
+BLACK = colors.black
+INK, TEXT_GREY = colors.HexColor("#1f1f1f"), colors.HexColor("#404040")
+MUTED, GRID = colors.HexColor("#6b6b6b"), colors.HexColor("#d4d4d4")
+GREEN = colors.HexColor("#2e7d32")
 LEVEL = {  # status colours always paired with a text label
-    "healthy": (colors.HexColor("#ecfdf5"), colors.HexColor("#065f46"), "HEALTHY"),
-    "warning": (colors.HexColor("#fffbeb"), colors.HexColor("#92400e"), "WARNING"),
-    "critical": (colors.HexColor("#fef2f2"), colors.HexColor("#991b1b"), "CRITICAL"),
-    "unknown": (colors.HexColor("#f1f5f9"), colors.HexColor("#334155"), "UNKNOWN"),
+    "healthy": (colors.HexColor("#2e7d32"), "HEALTHY"),
+    "warning": (colors.HexColor("#b26a00"), "WARNING"),
+    "critical": (colors.HexColor("#c62828"), "CRITICAL"),
+    "unknown": (colors.HexColor("#595959"), "UNKNOWN"),
 }
-SEV_COLORS = {"critical": "#b91c1c", "high": "#c2410c", "medium": "#a16207", "low": "#0369a1", "info": "#475569"}
+SEV_COLORS = {"critical": "#c62828", "high": "#d84315", "medium": "#b26a00", "low": "#1565c0", "info": "#595959"}
 SOURCE_LABEL = {"rdap": "Verified (RDAP)", "whois": "Verified (WHOIS)", "registrar_api": "Verified (registrar API)",
                 "api": "Verified (provider API)", "manual": "Manual entry - not verified", "certificate": "Live certificate",
                 "unknown": "Unknown"}
+DEFAULT_TITLE = "Website Maintenance Report"
+DEFAULT_INTRO = "Our maintenance contract keeps the website updated, secure and backed up every month."
+
+# Carlito is metrically identical to Calibri; DejaVu is the wide-coverage fallback.
+FONT_CANDIDATES = [
+    ("/usr/share/fonts/truetype/crosextra", "Carlito-Regular.ttf", "Carlito-Bold.ttf"),
+    ("/usr/share/fonts/truetype/dejavu", "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"),
+    ("/usr/share/fonts/dejavu", "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"),
+]
 
 _FONTS: tuple[str, str] | None = None
 
@@ -53,11 +71,11 @@ def fonts() -> tuple[str, str]:
     global _FONTS
     if _FONTS:
         return _FONTS
-    for d in FONT_DIRS:
-        reg, bold = os.path.join(d, "DejaVuSans.ttf"), os.path.join(d, "DejaVuSans-Bold.ttf")
-        if os.path.exists(reg) and os.path.exists(bold):
+    for d, regular, bold in FONT_CANDIDATES:
+        reg, bld = os.path.join(d, regular), os.path.join(d, bold)
+        if os.path.exists(reg) and os.path.exists(bld):
             pdfmetrics.registerFont(TTFont("SW", reg))
-            pdfmetrics.registerFont(TTFont("SW-Bold", bold))
+            pdfmetrics.registerFont(TTFont("SW-Bold", bld))
             pdfmetrics.registerFontFamily("SW", normal="SW", bold="SW-Bold", italic="SW", boldItalic="SW-Bold")
             _FONTS = ("SW", "SW-Bold")
             return _FONTS
@@ -68,6 +86,14 @@ def fonts() -> tuple[str, str]:
 def t(value) -> str:
     """Escape untrusted text for Paragraph markup; keep it within the font's coverage."""
     s = escape("" if value is None else str(value))
+    if fonts()[0] == "Helvetica":
+        s = s.encode("cp1252", "replace").decode("cp1252")
+    return s
+
+
+def _plain(value: str) -> str:
+    """Text drawn directly on the canvas (cover, footer): no markup, but same font coverage rule."""
+    s = value or ""
     if fonts()[0] == "Helvetica":
         s = s.encode("cp1252", "replace").decode("cp1252")
     return s
@@ -100,91 +126,127 @@ def _pct(v) -> str:
     return "No data" if v is None else f"{v:.2f}%"
 
 
+def _hex(c) -> str:
+    return "#" + c.hexval()[2:]
+
+
 class _Styles:
-    def __init__(self, accent):
+    def __init__(self):
         reg, bold = fonts()
-        self.body = ParagraphStyle("body", fontName=reg, fontSize=9.5, leading=13.5, textColor=INK)
-        self.small = ParagraphStyle("small", parent=self.body, fontSize=8, leading=10.5, textColor=MUTED)
-        self.cell = ParagraphStyle("cell", parent=self.body, fontSize=8.5, leading=11)
+        self.body = ParagraphStyle("body", fontName=reg, fontSize=12.5, leading=17, textColor=INK)
+        self.small = ParagraphStyle("small", parent=self.body, fontSize=10, leading=13.5, textColor=MUTED)
+        self.intro = ParagraphStyle("intro", parent=self.body, fontSize=17, leading=23, textColor=TEXT_GREY, spaceAfter=18)
+        self.cell = ParagraphStyle("cell", parent=self.body, fontSize=12, leading=16)
         self.cell_b = ParagraphStyle("cellb", parent=self.cell, fontName=bold)
-        self.h1 = ParagraphStyle("h1", parent=self.body, fontName=bold, fontSize=20, leading=25, spaceAfter=4)
-        self.h2 = ParagraphStyle("h2", parent=self.body, fontName=bold, fontSize=14, leading=18, spaceBefore=10,
-                                 spaceAfter=6, textColor=accent)
-        self.h3 = ParagraphStyle("h3", parent=self.body, fontName=bold, fontSize=11, leading=14, spaceBefore=8, spaceAfter=4)
-        self.bullet = ParagraphStyle("bullet", parent=self.body, leftIndent=10, bulletIndent=0)
+        self.cell_h = ParagraphStyle("cellh", parent=self.cell, fontName=bold, textColor=colors.white)
+        self.h1 = ParagraphStyle("h1", parent=self.body, fontName=bold, fontSize=26, leading=31, spaceAfter=6, textColor=BLACK)
+        self.h3 = ParagraphStyle("h3", parent=self.body, fontName=bold, fontSize=15, leading=19, spaceBefore=12, spaceAfter=7,
+                                 textColor=BLACK)
+        self.kpi_value = ParagraphStyle("kpiv", parent=self.body, fontName=bold, fontSize=26, leading=30, textColor=BLACK)
+        self.kpi_label = ParagraphStyle("kpil", parent=self.body, fontSize=11, leading=14, textColor=MUTED)
+        self.bullet = ParagraphStyle("bullet", parent=self.body, leftIndent=14, bulletIndent=2, spaceAfter=4)
         self.bold = bold
 
 
-def _table(rows, widths, s: _Styles, header=True, zebra=True):
-    data = [[c if not isinstance(c, str) else Paragraph(c, s.cell_b if (header and i == 0) else s.cell)
-             for c in row] for i, row in enumerate(rows)]
+def _table(rows, widths, s: _Styles, header=True, bold_col: int | None = None, align_right: tuple[int, ...] = ()):
+    """Brand table: black header with white text, light grey grid, roomy rows."""
+    data = []
+    for i, row in enumerate(rows):
+        out = []
+        for j, c in enumerate(row):
+            if not isinstance(c, str):
+                out.append(c)
+                continue
+            style = s.cell_h if (header and i == 0) else (s.cell_b if j == bold_col else s.cell)
+            if j in align_right:
+                style = ParagraphStyle(f"r{style.name}", parent=style, alignment=2)
+            out.append(Paragraph(c, style))
+        data.append(out)
     tbl = Table(data, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
-    style = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBELOW", (0, 0), (-1, -1), 0.4, RULE),
-             ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-             ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]
+    style = [("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("GRID", (0, 0), (-1, -1), 0.75, GRID),
+             ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+             ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10)]
     if header:
-        style += [("BACKGROUND", (0, 0), (-1, 0), SURFACE), ("LINEBELOW", (0, 0), (-1, 0), 0.8, MUTED)]
+        style += [("BACKGROUND", (0, 0), (-1, 0), BLACK), ("LINEBELOW", (0, 0), (-1, 0), 0.75, BLACK)]
     tbl.setStyle(TableStyle(style))
     return tbl
 
 
 def _sev(sev: str) -> str:
-    return f'<font color="{SEV_COLORS.get(sev, "#475569")}"><b>{t(sev.upper())}</b></font>'
+    return f'<font color="{SEV_COLORS.get(sev, "#595959")}"><b>{t(sev.capitalize())}</b></font>'
 
 
-def _status_box(status: dict, s: _Styles, width):
-    bg, fg, label = LEVEL.get(status["level"], LEVEL["unknown"])
-    title = Paragraph(f'<font color="#{fg.hexval()[2:]}"><b>Overall status: {label}</b></font>', s.h3)
-    reasons = [Paragraph(f"• {t(r)}", s.body) for r in status["reasons"]]
-    tbl = Table([[title], *[[r] for r in reasons]], colWidths=[width])
-    tbl.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), bg), ("BOX", (0, 0), (-1, -1), 0.8, fg),
-                             ("LEFTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 2),
-                             ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+def _done() -> str:
+    return f'<font color="{_hex(GREEN)}"><b>Completed</b></font>'
+
+
+def _kpis(items: list[tuple[str, str, str | None]], s: _Styles):
+    """Row of KPI tiles: (label, value, note)."""
+    w = CONTENT_W / len(items)
+    cells = []
+    for label, value, note in items:
+        parts = [Paragraph(t(label), s.kpi_label), Paragraph(value, s.kpi_value)]
+        if note:
+            parts.append(Paragraph(t(note), s.small))
+        cells.append(parts)
+    tbl = Table([cells], colWidths=[w] * len(items), hAlign="LEFT")
+    tbl.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.75, GRID), ("INNERGRID", (0, 0), (-1, -1), 0.75, GRID),
+                             ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 12),
+                             ("BOTTOMPADDING", (0, 0), (-1, -1), 12), ("LEFTPADDING", (0, 0), (-1, -1), 14)]))
     return tbl
 
 
-def _response_chart(daily: list[dict], s: _Styles, width) -> Drawing | None:
+def _status_line(status: dict, s: _Styles):
+    fg, label = LEVEL.get(status["level"], LEVEL["unknown"])
+    rows = [[Paragraph(f'<font color="{_hex(fg)}"><b>Overall status: {label}</b></font>', s.h3)]]
+    rows += [[Paragraph(t(r), s.bullet, bulletText="•")] for r in status["reasons"]]
+    tbl = Table(rows, colWidths=[CONTENT_W], hAlign="LEFT")
+    tbl.setStyle(TableStyle([("LINEBEFORE", (0, 0), (0, -1), 4, fg), ("LEFTPADDING", (0, 0), (-1, -1), 14),
+                             ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
+    return tbl
+
+
+def _response_chart(daily: list[dict], width, line_color) -> Drawing | None:
     pts = [(date.fromisoformat(d["day"]).toordinal(), d["avg_ms"]) for d in daily if d["avg_ms"] is not None]
     if len(pts) < 2:
         return None
     reg, _ = fonts()
-    h = 150
+    h = 190
     dr = Drawing(width, h)
     lp = LinePlot()
-    lp.x, lp.y, lp.width, lp.height = 45, 25, width - 60, h - 45
+    lp.x, lp.y, lp.width, lp.height = 55, 25, width - 70, h - 50
     lp.data = [pts]
-    lp.lines[0].strokeColor = SERIES
-    lp.lines[0].strokeWidth = 2
+    lp.lines[0].strokeColor = line_color
+    lp.lines[0].strokeWidth = 2.2
     ymax = max(v for _, v in pts)
     step = max(1, round(ymax / 4, -1 if ymax > 50 else 0))
     lp.yValueAxis.valueMin = 0
     lp.yValueAxis.valueMax = step * 5
     lp.yValueAxis.valueStep = step
     lp.yValueAxis.labels.fontName = reg
-    lp.yValueAxis.labels.fontSize = 7
+    lp.yValueAxis.labels.fontSize = 9
     lp.yValueAxis.labelTextFormat = "%d ms"
     lp.yValueAxis.visibleGrid = True
-    lp.yValueAxis.gridStrokeColor = RULE
-    lp.yValueAxis.strokeColor = RULE
+    lp.yValueAxis.gridStrokeColor = GRID
+    lp.yValueAxis.strokeColor = GRID
     lp.xValueAxis.valueMin, lp.xValueAxis.valueMax = pts[0][0], pts[-1][0]
     lp.xValueAxis.labels.fontName = reg
-    lp.xValueAxis.labels.fontSize = 7
+    lp.xValueAxis.labels.fontSize = 9
     lp.xValueAxis.labelTextFormat = lambda v: date.fromordinal(int(v)).strftime("%d %b")
-    lp.xValueAxis.valueSteps = [p[0] for p in pts][:: max(1, len(pts) // 6)]
-    lp.xValueAxis.strokeColor = RULE
+    lp.xValueAxis.valueSteps = [p[0] for p in pts][:: max(1, len(pts) // 8)]
+    lp.xValueAxis.strokeColor = GRID
     dr.add(lp)
-    dr.add(String(45, h - 10, "Average response time per day (successful checks)", fontName=reg, fontSize=8,
+    dr.add(String(55, h - 12, "Average response time per day (successful checks)", fontName=reg, fontSize=10,
                   fillColor=MUTED))
     return dr
 
 
 class _NumberedCanvas(rl_canvas.Canvas):
-    """Adds 'Page X of Y' after the total page count is known."""
+    """Adds the page number to content pages once the total is known (the cover has none)."""
 
-    def __init__(self, *a, footer_left="", **kw):
+    def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._saved = []
-        self.footer_left = footer_left
 
     def showPage(self):  # noqa: N802
         self._saved.append(dict(self.__dict__))
@@ -194,105 +256,140 @@ class _NumberedCanvas(rl_canvas.Canvas):
         total = len(self._saved)
         for state in self._saved:
             self.__dict__.update(state)
-            reg, _ = fonts()
-            self.setFont(reg, 7.5)
-            self.setFillColor(MUTED)
-            self.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Page {self._pageNumber} of {total}")
-            self.drawString(18 * mm, 10 * mm, self.footer_left[:120])
+            if self._pageNumber > 1:
+                reg, _ = fonts()
+                self.setFont(reg, 9)
+                self.setFillColor(MUTED)
+                self.drawCentredString(PAGE[0] / 2, 26, f"Page {self._pageNumber} of {total}")
             super().showPage()
         super().save()
 
 
 def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
     b = snap.get("branding") or {}
-    accent = colors.HexColor(b.get("accent_color") or "#1e3a8a")
-    s = _Styles(accent)
+    s = _Styles()
+    reg, bold = fonts()
+    line_color = colors.HexColor(b["accent_color"]) if b.get("accent_color") else BLACK
     buf = io.BytesIO()
-    width = A4[0] - 36 * mm
     period_label = datetime.fromisoformat(snap["period_start"]).strftime("%B %Y")
     last_day = (datetime.fromisoformat(snap["period_end"]) - timedelta(days=1)).date()
     company = b.get("company_name") or "SiteWatch"
-    footer = f"{company} · {snap['website']['name']} · {period_label}" + (f" · {b['footer_text']}" if b.get("footer_text") else "")
+    site_text = b.get("footer_text") or ""
+    title = b.get("report_title") or DEFAULT_TITLE
+    tech = snap["kind"] == "technical"
+    logo = Logo(logo_path, company)
 
-    def on_page(c, doc):
-        reg, bold = fonts()
+    def cover(c, doc):
         c.saveState()
-        c.setStrokeColor(accent)
-        c.setLineWidth(2)
-        c.line(18 * mm, A4[1] - 14 * mm, A4[0] - 18 * mm, A4[1] - 14 * mm)
-        c.setFont(bold, 8)
-        c.setFillColor(accent)
-        c.drawString(18 * mm, A4[1] - 12 * mm, company[:80])
-        c.setFont(reg, 8)
-        c.setFillColor(MUTED)
-        c.drawRightString(A4[0] - 18 * mm, A4[1] - 12 * mm,
-                          f"{'Technical' if snap['kind'] == 'technical' else 'Client'} maintenance report · {period_label}")
+        c.setFillColor(BLACK)
+        c.rect(0, 0, PAGE[0], PAGE[1], stroke=0, fill=1)
+        logo.draw(c, MARGIN_X, PAGE[1] - 105, 46, dark_background=True)
+        c.setFillColor(colors.white)
+        c.setFont(reg, 19)
+        c.drawString(MARGIN_X + 10, 318, _plain(snap["website"]["name"][:70]))
+        c.setFont(bold, 50)
+        c.drawString(MARGIN_X + 10, 250, _plain(title[:40]))
+        c.setFont(reg, 17)
+        c.setFillColor(colors.HexColor("#bfbfbf"))
+        sub = period_label + (" · Technical edition" if tech else "")
+        c.drawString(MARGIN_X + 10, 212, sub)
+        c.setFont(reg, 13)
+        c.setFillColor(colors.white)
+        if site_text:
+            c.drawString(MARGIN_X, 40, _plain(site_text[:80]))
         c.restoreState()
 
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=20 * mm,
-                            bottomMargin=18 * mm, title=f"{snap['website']['name']} - {period_label}",
-                            author=company, subject="Website maintenance report")
-    story = []
+    def content(c, doc):
+        c.saveState()
+        logo.draw(c, MARGIN_X, 20, 20, dark_background=False)
+        c.setFont(reg, 11)
+        c.setFillColor(TEXT_GREY)
+        if site_text:
+            c.drawRightString(PAGE[0] - MARGIN_X, 25, _plain(site_text[:80]))
+        c.restoreState()
 
-    # ---- cover ----------------------------------------------------------------------------
-    if logo_path and os.path.exists(logo_path):
-        img = Image(logo_path)
-        ratio = img.imageWidth / img.imageHeight
-        img.drawHeight = 16 * mm
-        img.drawWidth = min(60 * mm, 16 * mm * ratio)
-        img.hAlign = "LEFT"
-        story += [img, Spacer(1, 4 * mm)]
-    story.append(Paragraph(f"Website maintenance report{' (technical)' if snap['kind'] == 'technical' else ''}", s.h1))
-    meta = [
-        ["Website", f"<b>{t(snap['website']['name'])}</b>"],
-        ["Address", t(snap["website"]["url"])],
-        ["Client", t(snap["website"]["client"])],
-        ["Reporting period", f"{_d(snap['period_start'])} – {_d(last_day.isoformat())} (calendar month, UTC)"],
-        ["Generated", _dt(snap["generated_at"])],
-    ]
+    frame = Frame(MARGIN_X, 62, CONTENT_W, PAGE[1] - 62 - 45, id="body", leftPadding=0, rightPadding=0,
+                  topPadding=0, bottomPadding=0)
+    doc = BaseDocTemplate(buf, pagesize=PAGE, leftMargin=MARGIN_X, rightMargin=MARGIN_X, topMargin=45, bottomMargin=62,
+                          title=f"{snap['website']['name']} - {period_label}", author=company, subject=title)
+    doc.addPageTemplates([PageTemplate(id="cover", frames=[frame], onPage=cover),
+                          PageTemplate(id="content", frames=[frame], onPage=content)])
+
+    def section(heading: str, intro: str | None = None) -> list:
+        out = [PageBreak(), Paragraph(t(heading), s.h1)]
+        if intro:
+            out.append(Paragraph(t(intro), s.intro))
+        else:
+            out.append(Spacer(1, 10))
+        return out
+
+    # ---- cover ------------------------------------------------------------------------------------
+    story: list = [Spacer(1, 1), NextPageTemplate("content")]
+
+    # ---- summary ----------------------------------------------------------------------------------
+    up, r, iss = snap["uptime"], snap["response"], snap["issues"]
+    story += section(f"Monthly summary · {period_label}",
+                     f"{snap['website']['name']} ({snap['website']['url']}) · {_d(snap['period_start'])} – "
+                     f"{_d(last_day.isoformat())}")
+    story.append(_kpis([
+        ("Uptime", _pct(up["uptime_pct"]), f"{up['coverage_pct']:.1f}% of the month monitored"),
+        ("Confirmed outages", str(len(up["incidents"])), f"Downtime {_dur(up['downtime_s'])}"),
+        ("Average response", f"{r['avg_ms']} ms" if r["avg_ms"] is not None else "No data", None),
+        ("Open issues", str(iss["outstanding_total"]), f"{iss['resolved_total']} fixed and verified"),
+    ], s))
+    story += [Spacer(1, 16), _status_line(snap["status"], s), Spacer(1, 8)]
+    story += [Paragraph(t(x), s.bullet, bulletText="•") for x in snap["summary"]]
     if not snap["period_complete"]:
-        meta.append(["Note", f"<b>The period is not finished: data until {_dt(snap['data_until'])}.</b>"])
-    story += [_table(meta, [35 * mm, width - 35 * mm], s, header=False, zebra=False), Spacer(1, 5 * mm),
-              _status_box(snap["status"], s, width), Spacer(1, 3 * mm),
-              Paragraph("Executive summary", s.h2), *[Paragraph(t(x), s.body) for x in snap["summary"]],
-              Spacer(1, 2 * mm),
-              Paragraph("Section 1 contains automated <b>monitoring results</b>. Section 2 lists <b>maintenance work</b> "
-                        "recorded by the team. An issue is only reported as fixed when a later audit confirmed it.", s.small)]
+        story.append(Paragraph(f"<b>The period is not finished: data until {_dt(snap['data_until'])}.</b>", s.small))
+    story.append(Paragraph(f"Generated {_dt(snap['generated_at'])} for {t(snap['website']['client'])}.", s.small))
 
-    # ---- 1. monitoring results ------------------------------------------------------------
-    story += [PageBreak(), Paragraph("1. Monitoring results", s.h2), Paragraph("1.1 Availability", s.h3)]
-    up = snap["uptime"]
+    # ---- maintenance work (the agency's task table) ------------------------------------------------
+    story += section("Maintenance work performed", b.get("maintenance_intro") or DEFAULT_INTRO)
+    if snap["maintenance"]:
+        rows = [["#", "Task", "Details", "Status"]]
+        for n, m in enumerate(snap["maintenance"], 1):
+            details = t(m.get("description") or m["category"])
+            rows.append([str(n), f"<b>{t(m['title'])}</b><br/><font size=10 color='#6b6b6b'>{_d(m['date'])}</font>",
+                         details, _done()])
+        story.append(_table(rows, [50, 260, CONTENT_W - 50 - 260 - 130, 130], s))
+    else:
+        story.append(Paragraph("No maintenance work was recorded for this period.", s.body))
+
+    # ---- uptime & performance ------------------------------------------------------------------------
+    story += section("Uptime & performance", "Automated checks confirm the website is reachable and measure how "
+                                             "quickly it responds.")
     story.append(_table([
         ["Measure", "This month", "Previous month"],
         ["Uptime", f"<b>{_pct(up['uptime_pct'])}</b>", _pct(up["previous"]["uptime_pct"])],
         ["Confirmed outages", str(len(up["incidents"])), str(up["previous"]["incidents"])],
         ["Total downtime", _dur(up["downtime_s"]), _dur(up["previous"]["downtime_s"])],
         ["Monitoring coverage", f"{up['coverage_pct']:.1f}% ({up['checks']} checks)", f"{up['previous']['coverage_pct']:.1f}%"],
-    ], [60 * mm, 55 * mm, width - 115 * mm], s))
+        ["Average response", f"{r['avg_ms']} ms" if r["avg_ms"] is not None else "No data",
+         f"{r['previous_avg_ms']} ms" if r["previous_avg_ms"] is not None else "No data"],
+    ], [CONTENT_W * 0.4, CONTENT_W * 0.3, CONTENT_W * 0.3], s, bold_col=0))
     story.append(Paragraph("Uptime is time-weighted from recorded checks; time without checks is excluded, never counted "
                            "as available.", s.small))
-    if up["incidents"]:
-        rows = [["Started", "Ended", "Duration"] + (["Cause"] if snap["kind"] == "technical" else [])]
-        for i in up["incidents"][:40]:
-            rows.append([_dt(i["started_at"]), "Ongoing" if i["ongoing"] else _dt(i["ended_at"]), _dur(i["duration_s"])]
-                        + ([t(i.get("cause"))] if snap["kind"] == "technical" else []))
-        w = [40 * mm, 40 * mm, 28 * mm] + ([width - 108 * mm] if snap["kind"] == "technical" else [])
-        story += [Spacer(1, 2 * mm), Paragraph("Outages", s.h3), _table(rows, w, s)]
-    else:
-        story.append(Paragraph("No confirmed outages in this period.", s.body))
-
-    story.append(Paragraph("1.2 Response time", s.h3))
-    r = snap["response"]
     if r["avg_ms"] is None:
         story.append(Paragraph("No successful checks were recorded, so response times cannot be reported.", s.body))
     else:
-        story.append(Paragraph(f"Average {r['avg_ms']} ms" + (f", 95th percentile {r['p95_ms']} ms" if r["p95_ms"] else "")
-                               + (f"; previous month {r['previous_avg_ms']} ms." if r["previous_avg_ms"] else "."), s.body))
-        chart = _response_chart(r["daily"], s, width)
+        if r["p95_ms"]:
+            story.append(Paragraph(f"95% of responses were faster than {r['p95_ms']} ms.", s.small))
+        chart = _response_chart(r["daily"], CONTENT_W, line_color)
         if chart:
-            story.append(chart)
+            story += [CondPageBreak(200), chart]
+    if up["incidents"]:
+        rows = [["Started", "Ended", "Duration"] + (["Cause"] if tech else [])]
+        for i in up["incidents"][:40]:
+            rows.append([_dt(i["started_at"]), "Ongoing" if i["ongoing"] else _dt(i["ended_at"]), _dur(i["duration_s"])]
+                        + ([t(i.get("cause"))] if tech else []))
+        w = [190, 190, 130] + ([CONTENT_W - 510] if tech else [])
+        story += [CondPageBreak(120), Paragraph("Outages", s.h3), _table(rows, w, s)]
+    else:
+        story.append(Paragraph("No confirmed outages in this period.", s.body))
 
-    story.append(Paragraph("1.3 Technical audit", s.h3))
+    # ---- technical audit & issues -------------------------------------------------------------------------
+    story += section("Technical audit", "The website is crawled to find broken links, SEO, security, form and "
+                                        "accessibility problems.")
     a, ap = snap["audit"], snap.get("audit_previous")
     if a is None:
         story.append(Paragraph("No technical audit was completed during this period. Audit results are therefore not "
@@ -300,13 +397,14 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
     else:
         story.append(Paragraph(f"Latest audit finished {_dt(a['last_finished_at'])} ({a['last_status']}); "
                                f"{a['runs']} audit(s) completed in the period.", s.body))
+        story.append(Spacer(1, 8))
         rows = [["Measure", "This month", "Previous month"],
                 ["Pages crawled", str(a["pages_crawled"]), str(ap["pages_crawled"]) if ap else "-"],
                 ["Broken internal links", str(a["broken_internal_links"]), str(ap["broken_internal_links"]) if ap else "-"],
                 ["Broken external links", f"{a['broken_external_links']} (of {a['external_links_checked']} checked)", "-"]]
         for k in ("critical", "high", "medium", "low"):
             rows.append([_sev(k) + " findings", str(a["by_severity"][k]), str(ap["by_severity"][k]) if ap else "-"])
-        story.append(_table(rows, [60 * mm, 55 * mm, width - 115 * mm], s))
+        story.append(_table(rows, [CONTENT_W * 0.4, CONTENT_W * 0.3, CONTENT_W * 0.3], s, bold_col=0))
         cov = a["coverage"]
         story.append(Paragraph(
             f"Checks performed: {len(cov.get('performed', []))} fully, {len(cov.get('partial', []))} partly; "
@@ -318,22 +416,20 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
             for c in lim:  # one row per distinct limitation, listing the affected checks
                 groups.setdefault(c.get("reason") or "-", []).append(c["label"])
             rows = [["Limitation", "Checks affected"]] + [[t(reason), t(", ".join(labels))] for reason, labels in groups.items()]
-            story += [Spacer(1, 1 * mm), _table(rows, [width * 0.5, width * 0.5], s)]
-
-    iss = snap["issues"]
-    tech = snap["kind"] == "technical"
+            story += [CondPageBreak(100), Paragraph("What could not be fully checked", s.h3),
+                      _table(rows, [CONTENT_W * 0.5, CONTENT_W * 0.5], s)]
 
     def issue_table(items, extra_note=False):
         rows = [["Severity", "Issue", "Category"] + (["Note"] if extra_note else [])]
         for i in items:
-            title = t(i["title"]) + (f"<br/><font size=7 color='#475569'>{t(i['url'])}</font>" if tech and i.get("url") else "")
-            rows.append([_sev(i["severity"]), title, t(i["category"])] + ([t(i.get("resolution_note") or "")] if extra_note else []))
-        w = [20 * mm, width - 62 * mm, 42 * mm] if not extra_note else [20 * mm, 70 * mm, 35 * mm, width - 125 * mm]
+            ttl = t(i["title"]) + (f"<br/><font size=9 color='#6b6b6b'>{t(i['url'])}</font>" if tech and i.get("url") else "")
+            rows.append([_sev(i["severity"]), ttl, t(i["category"])] + ([t(i.get("resolution_note") or "")] if extra_note else []))
+        w = [100, CONTENT_W - 330, 230] if not extra_note else [100, 330, 180, CONTENT_W - 610]
         return _table(rows, w, s)
 
-    story += [Paragraph("1.4 Issues", s.h3),
+    story += [CondPageBreak(140), Paragraph("Issues", s.h3),
               Paragraph(f"New this period: {iss['new_total']} · confirmed fixed by a follow-up audit: {iss['resolved_total']} "
-                        f"· outstanding now: {iss['outstanding_total']}", s.body)]
+                        f"· outstanding now: {iss['outstanding_total']}", s.body), Spacer(1, 6)]
     if iss["resolved"]:
         story += [Paragraph("Fixed (verified by a later audit)", s.h3), issue_table(iss["resolved"], extra_note=tech)]
     if iss["recurring"]:
@@ -348,19 +444,21 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
         story.append(Paragraph("No issues are listed because the website could not be audited this period; this does "
                                "not mean there are none.", s.body))
 
+    # ---- domain, hosting, SSL ---------------------------------------------------------------------------
     e = snap.get("expiry")
     if e:
-        story.append(Paragraph("1.5 Domain, hosting and SSL", s.h3))
+        story += section("Domain, hosting & SSL", "Renewal dates we track so the website never goes offline "
+                                                  "because something expired.")
 
         def when(p):
             if not p["date"]:
                 return "Unknown"
             dl = p["days_left"]
-            return f"{_d(p['date'])} ({'expired' if dl < 0 else f'{dl} days left'})"
+            return f"{_d(p['date'])}<br/><font size=10 color='#6b6b6b'>{'expired' if dl < 0 else f'{dl} days left'}</font>"
 
         rows = [["Item", "Expiry / renewal", "Source", "Details"],
-                ["Domain" + (f"<br/>{t(e['domain']['name'])}" if e["domain"]["name"] else ""), when(e["domain"]),
-                 SOURCE_LABEL.get(e["domain"]["source"], e["domain"]["source"]),
+                ["Domain" + (f"<br/><font size=10 color='#6b6b6b'>{t(e['domain']['name'])}</font>" if e["domain"]["name"] else ""),
+                 when(e["domain"]), SOURCE_LABEL.get(e["domain"]["source"], e["domain"]["source"]),
                  t(e["domain"]["registrar"] or e["domain"]["note"] or "")],
                 ["Hosting", when(e["hosting"]), SOURCE_LABEL.get(e["hosting"]["source"], e["hosting"]["source"]),
                  t(e["hosting"]["provider"] or e["hosting"]["note"] or "")]]
@@ -370,32 +468,19 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
             rows.append(["SSL certificate", when(ssl), SOURCE_LABEL["certificate"] if ssl["date"] else "Unknown", detail])
         else:
             rows.append(["SSL certificate", "-", "-", t(ssl["note"])])
-        story.append(_table(rows, [30 * mm, 42 * mm, 42 * mm, width - 114 * mm], s))
+        story.append(_table(rows, [170, 190, 200, CONTENT_W - 560], s, bold_col=0))
         story.append(Paragraph("“Manual entry” dates were typed in by the team and have not been verified with the "
                                "registrar or hosting provider.", s.small))
 
-    # ---- 2. maintenance -------------------------------------------------------------------------
-    story += [Paragraph("2. Maintenance work performed", s.h2),
-              Paragraph("Work recorded by the maintenance team during the period. These entries describe actions taken; "
-                        "they are not automated measurements.", s.small)]
-    if snap["maintenance"]:
-        rows = [["Date", "Work", "Type"]] + [
-            [_d(m["date"]), f"<b>{t(m['title'])}</b>" + (f"<br/>{t(m['description'])}" if m.get("description") else ""),
-             t(m["category"])] for m in snap["maintenance"]]
-        story.append(_table(rows, [25 * mm, width - 55 * mm, 30 * mm], s))
-    else:
-        story.append(Paragraph("No maintenance work was recorded for this period.", s.body))
-
-    # ---- 3. recommendations -----------------------------------------------------------------------
-    story.append(Paragraph("3. Recommendations", s.h2))
+    # ---- recommendations & comparison ---------------------------------------------------------------------
+    story += section("Recommendations", "Suggested next steps, based on this month's monitoring and audit results.")
     if snap["recommendations"]:
         rows = [["Priority", "Recommended action", "Based on"]] + [
-            [f"<b>{t(x['priority'].upper())}</b>", t(x["text"]), t(x["evidence"])] for x in snap["recommendations"]]
-        story.append(_table(rows, [20 * mm, 75 * mm, width - 95 * mm], s))
+            [f"<b>{t(x['priority'].capitalize())}</b>", t(x["text"]), t(x["evidence"])] for x in snap["recommendations"]]
+        story.append(_table(rows, [100, CONTENT_W * 0.5, CONTENT_W * 0.5 - 100], s))
     else:
         story.append(Paragraph("No corrective actions are recommended based on this period's data.", s.body))
 
-    # ---- 4. comparison ------------------------------------------------------------------------------
     up_prev = up["previous"]
     rows = [["Measure", "This month", "Previous month", "Change"]]
 
@@ -406,7 +491,8 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
         if abs(d) < 1e-9:
             return "no change"
         good = (d < 0) if better_low else (d > 0)
-        return f"{'+' if d > 0 else '−'}{abs(d):.2f}{unit} ({'better' if good else 'worse'})"
+        col = _hex(GREEN) if good else SEV_COLORS["critical"]
+        return f"<font color='{col}'>{'+' if d > 0 else '−'}{abs(d):.2f}{unit} ({'better' if good else 'worse'})</font>"
 
     rows.append(["Uptime", _pct(up["uptime_pct"]), _pct(up_prev["uptime_pct"]), change(up["uptime_pct"], up_prev["uptime_pct"], " pts")])
     rows.append(["Outages", str(len(up["incidents"])), str(up_prev["incidents"]), change(len(up["incidents"]), up_prev["incidents"], "", True)])
@@ -416,23 +502,25 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
     if a and ap:
         hi, hp = a["by_severity"]["critical"] + a["by_severity"]["high"], ap["by_severity"]["critical"] + ap["by_severity"]["high"]
         rows.append(["Critical + high findings", str(hi), str(hp), change(hi, hp, "", True)])
-    story += [KeepTogether([Paragraph("4. Comparison with the previous month", s.h2),
-                            _table(rows, [50 * mm, 38 * mm, 38 * mm, width - 126 * mm], s)])]
+    story += [Spacer(1, 10), KeepTogether([Paragraph("Comparison with the previous month", s.h3),
+                                           _table(rows, [CONTENT_W * 0.28, CONTENT_W * 0.22, CONTENT_W * 0.22,
+                                                         CONTENT_W * 0.28], s, bold_col=0)])]
 
-    # ---- 5. method --------------------------------------------------------------------------------
-    story += [Paragraph("5. Notes on method", s.h2)]
+    # ---- method --------------------------------------------------------------------------------------------
+    story += section("Notes on method")
     for line in (
-        "Availability is measured by automated HTTP(S) checks every 1–5 minutes from a single location. An outage is "
-        "confirmed only after repeated failed checks; brief network problems between the monitor and the website can "
-        "occasionally be recorded as downtime.",
+        "Availability is measured by automated HTTP(S) checks every 1 minute to 24 hours, as configured, from a single "
+        "location. An outage is confirmed only after repeated failed checks; brief network problems between the monitor "
+        "and the website can occasionally be recorded as downtime.",
         "Technical audits crawl the website within configured limits and respect robots.txt. Checks that were limited "
-        "or could not run are listed in section 1.3; content generated by JavaScript is not audited.",
+        "or could not run are listed on the technical audit page; content generated by JavaScript is not audited. "
+        "Forms are inspected but never submitted.",
         "An issue is reported as fixed only when a subsequent audit re-checked it and no longer observed the problem.",
         "Domain expiry dates are retrieved from the registry (RDAP/WHOIS). Hosting renewal dates are generally not "
         "public and are shown as entered by the team unless verified with the provider.",
+        "Maintenance work is recorded by the team and describes actions taken; it is not an automated measurement.",
     ):
-        story.append(Paragraph(f"• {t(line)}", s.small))
+        story.append(Paragraph(t(line), s.bullet, bulletText="•"))
 
-    doc.build(story, onFirstPage=on_page, onLaterPages=on_page,
-              canvasmaker=lambda *a, **kw: _NumberedCanvas(*a, footer_left=footer, **kw))
+    doc.build(story, canvasmaker=_NumberedCanvas)
     return buf.getvalue()

@@ -237,13 +237,38 @@ def delete_maintenance(website_id: uuid.UUID, activity_id: uuid.UUID, request: R
 class BrandingIn(BaseModel):
     company_name: str | None = Field(default=None, max_length=120)
     accent_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
-    footer_text: str | None = Field(default=None, max_length=200)
+    footer_text: str | None = Field(default=None, max_length=200, description="Shown bottom-right, e.g. www.example.com")
+    report_title: str | None = Field(default=None, max_length=40, description="Cover title, e.g. AMC Monthly Report")
+    maintenance_intro: str | None = Field(default=None, max_length=300, description="Sentence above the maintenance table")
+
+
+BRANDING_FIELDS = ("company_name", "accent_color", "footer_text", "report_title", "maintenance_intro")
 
 
 @router.get("/settings/branding")
 def get_branding(db: Session = Depends(get_db), _: User = Depends(require("settings.manage"))):
     b = rsvc.branding(db)
-    return {**{k: b.get(k) for k in ("company_name", "accent_color", "footer_text")}, "has_logo": bool(rsvc.logo_file(db))}
+    logo = rsvc.logo_file(db)
+    return {**{k: b.get(k) for k in BRANDING_FIELDS}, "has_logo": bool(logo),
+            "logo_type": ("svg" if logo.endswith(".svg") else "image") if logo else None}
+
+
+@router.get("/settings/branding/preview")
+def preview_report(db: Session = Depends(get_db), user: User = Depends(require("settings.manage"))):
+    """Render this month's client report for the first active website, with the current branding,
+    without storing anything. Lets an administrator check logo, colours and wording."""
+    from app.reports.data import build_snapshot
+    from app.reports.pdf import render_pdf
+
+    site = db.scalars(select(Website).where(Website.status == "active", website_scope_clause(user))
+                      .order_by(Website.name).limit(1)).first()
+    if site is None:
+        raise HTTPException(409, "Add a website first: the preview uses a real website's data.")
+    period = datetime.now(UTC).strftime("%Y-%m")
+    snap = build_snapshot(db, site, period, "client", branding=rsvc.branding(db))
+    pdf = render_pdf(snap, rsvc.logo_file(db))
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="report-preview.pdf"', "Cache-Control": "no-store"})
 
 
 @router.put("/settings/branding")
@@ -265,6 +290,21 @@ async def upload_logo(request: Request, file: UploadFile = File(...), db: Sessio
     data = await file.read(MAX_LOGO_BYTES + 1)
     if len(data) > MAX_LOGO_BYTES:
         raise HTTPException(413, "Logo must be 1 MB or smaller.")
+    if data.lstrip()[:5] in (b"<?xml", b"<svg ") or data.lstrip()[:4] == b"<svg" or (file.filename or "").lower().endswith(".svg"):
+        from app.reports.logo import LogoError, validate_svg
+
+        try:
+            drawing = validate_svg(data)
+        except LogoError as e:
+            raise HTTPException(415, str(e)) from None
+        rel = "branding/logo.svg"
+        path = rsvc.safe_path(rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        rsvc.set_setting(db, "branding.logo_path", rel, user.id)
+        record(db, user.id, "settings.logo", None, None, client_ip(request), size=len(data), type="svg")
+        db.commit()
+        return {"has_logo": True, "width": round(drawing.width), "height": round(drawing.height)}
     from PIL import Image, UnidentifiedImageError
 
     try:
@@ -272,7 +312,7 @@ async def upload_logo(request: Request, file: UploadFile = File(...), db: Sessio
             fmt = probe.format
             probe.verify()  # structural check
         if fmt not in ("PNG", "JPEG"):
-            raise HTTPException(415, "Logo must be a PNG or JPEG image.")
+            raise HTTPException(415, "Logo must be an SVG, PNG or JPEG image.")
         with Image.open(io.BytesIO(data)) as img:
             if img.width * img.height > 25_000_000:
                 raise HTTPException(413, "Image dimensions are too large.")

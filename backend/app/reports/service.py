@@ -28,7 +28,7 @@ from app.reports.pdf import render_pdf
 
 log = logging.getLogger("sitewatch.reports")
 KINDS = ("client", "technical")
-BRANDING_KEYS = ("company_name", "accent_color", "footer_text", "logo_path")
+BRANDING_KEYS = ("company_name", "accent_color", "footer_text", "report_title", "maintenance_intro", "logo_path")
 
 
 class ReportError(Exception):

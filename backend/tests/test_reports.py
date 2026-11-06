@@ -149,8 +149,9 @@ def test_period_without_data_is_reported_as_missing(db, make_client, make_websit
 # ---- PDF ---------------------------------------------------------------------------------
 
 def test_pdf_content_and_structure(db, site):
-    snap = build_snapshot(db, site, PERIOD, "technical", now=NOW, branding={"company_name": "Agency Ltd",
-                                                                              "footer_text": "Confidential"})
+    snap = build_snapshot(db, site, PERIOD, "technical", now=NOW, branding={
+        "company_name": "Agency Ltd", "footer_text": "www.agency.example", "report_title": "AMC Monthly Report",
+        "maintenance_intro": "We keep your website healthy."})
     pdf = render_pdf(snap)
     assert pdf.startswith(b"%PDF")
     if os.environ.get("SAVE_PDF_DIR"):  # opt-in: keep a sample for visual review
@@ -158,21 +159,23 @@ def test_pdf_content_and_structure(db, site):
     reader = PdfReader(io.BytesIO(pdf))
     n = len(reader.pages)
     txt = text_of(pdf)
-    for needle in ("Website maintenance report (technical)", "Shop <b>&amp;</b>", "October 2026",
-                   "Overall status: WARNING", "1. Monitoring results", "1.1 Availability", "1.3 Technical audit",
+    for needle in ("AMC Monthly Report", "Technical edition", "Shop <b>&amp;</b>", "October 2026",
+                   "Overall status: WARNING", "Monthly summary", "Uptime & performance", "Technical audit",
                    "Fixed (verified by a later audit)", "Outstanding issues requiring attention",
-                   "HTTP 404: /pricing <script>", "2. Maintenance work performed", "Updated CMS core to 6.4",
-                   "3. Recommendations", "4. Comparison with the previous month", "5. Notes on method",
-                   "Verified (RDAP)", "Manual entry - not verified", "Average response time per day",
-                   "Unexpected HTTP 503", f"Page 1 of {n}", f"Page {n} of {n}", "Agency Ltd", "Confidential"):
+                   "HTTP 404: /pricing <script>", "Maintenance work performed", "We keep your website healthy.",
+                   "Updated CMS core to 6.4", "Completed", "Recommendations", "Comparison with the previous month",
+                   "Notes on method", "Verified (RDAP)", "Manual entry - not verified", "Average response time per day",
+                   "Unexpected HTTP 503", f"Page 2 of {n}", f"Page {n} of {n}", "Agency Ltd", "www.agency.example"):
         assert needle in txt, needle
+    assert "Page 1 of" not in txt  # the cover carries no page number
+    assert reader.pages[0].mediabox.width > reader.pages[0].mediabox.height  # 16:9 landscape
     assert reader.metadata.title.startswith("Shop")
 
 
 def test_client_pdf_has_no_technical_details(db, site):
     txt = text_of(render_pdf(build_snapshot(db, site, PERIOD, "client", now=NOW)))
     assert "Unexpected HTTP 503" not in txt and "Rotated DB password" not in txt and "No robots.txt" not in txt
-    assert "Website maintenance report" in txt and "(technical)" not in txt
+    assert "Website Maintenance Report" in txt and "Technical edition" not in txt
 
 
 def test_logo_is_embedded(db, site, as_user):
@@ -370,7 +373,7 @@ def test_unreachable_audit_is_grouped_and_plain_for_clients(db, make_client, mak
 def test_helvetica_fallback_when_unicode_fonts_missing(db, site, monkeypatch):
     import app.reports.pdf as pdfmod
 
-    monkeypatch.setattr(pdfmod, "FONT_DIRS", ["/nonexistent"])
+    monkeypatch.setattr(pdfmod, "FONT_CANDIDATES", [("/nonexistent", "a.ttf", "b.ttf")])
     monkeypatch.setattr(pdfmod, "_FONTS", None)
     site.name = "Café Zürich – 東京"
     db.commit()
@@ -378,3 +381,45 @@ def test_helvetica_fallback_when_unicode_fonts_missing(db, site, monkeypatch):
     txt = text_of(pdf)
     assert "Café Zürich" in txt and "東京" not in txt  # Western text kept; unsupported characters replaced
     monkeypatch.setattr(pdfmod, "_FONTS", None)  # let later tests register DejaVu again
+
+
+BRANDE_LIKE_SVG = (b'<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50">'
+                   b'<defs><style>.a{fill:#fff;}</style></defs><path class="a" d="M0,0H40V50H0Z"/>'
+                   b'<path class="a" d="M60,0H100V50H60Z"/></svg>')
+
+
+def test_svg_logo_upload_and_render(db, site, as_user):
+    admin = as_user("super_admin")
+    r = admin.post("/api/v1/settings/branding/logo", files={"file": ("logo.svg", BRANDE_LIKE_SVG, "image/svg+xml")})
+    assert r.status_code == 200, r.text
+    assert admin.get("/api/v1/settings/branding").json()["logo_type"] == "svg"
+    snap = build_snapshot(db, site, PERIOD, "client", now=NOW, branding=rsvc.branding(db))
+    pdf = render_pdf(snap, rsvc.logo_file(db))
+    # vector logo: drawn as paths, no raster image; white on the black cover, recoloured black on content pages
+    reader = PdfReader(io.BytesIO(pdf))
+    assert not reader.pages[0].images
+    cover, page2 = reader.pages[0].get_contents().get_data(), reader.pages[1].get_contents().get_data()
+    assert b"1 1 1 rg" in cover and b"0 0 0 rg" in page2
+
+
+@pytest.mark.parametrize("svg", [
+    b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg">&x;</svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="file:///etc/passwd"/></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><use href="https://evil.example/x.svg#a"/></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><path d="M0,0H1V1Z"/></svg>',
+    b'<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/a.css);</style></svg>',
+    b'<html><body>not svg</body></html>',
+])
+def test_unsafe_svg_logos_are_rejected(as_user, svg):
+    r = as_user("super_admin").post("/api/v1/settings/branding/logo", files={"file": ("logo.svg", svg, "image/svg+xml")})
+    assert r.status_code == 415, r.text
+
+
+def test_branding_preview(db, site, as_user):
+    admin = as_user("super_admin")
+    admin.put("/api/v1/settings/branding", json={"report_title": "AMC Monthly Report", "footer_text": "www.brande.ae"})
+    r = admin.get("/api/v1/settings/branding/preview")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert "AMC Monthly Report" in text_of(r.content) and "www.brande.ae" in text_of(r.content)
+    assert as_user("developer").get("/api/v1/settings/branding/preview").status_code == 403

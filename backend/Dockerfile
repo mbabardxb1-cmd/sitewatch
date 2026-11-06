@@ -14,7 +14,7 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
     && APT_OPTS="" && if [ -s /run/secrets/extra_ca ]; then APT_OPTS="-o Acquire::https::CAInfo=/run/secrets/extra_ca"; fi \
     && apt-get $APT_OPTS update \
-    && apt-get $APT_OPTS install -y --no-install-recommends fonts-dejavu-core \
+    && apt-get $APT_OPTS install -y --no-install-recommends fonts-dejavu-core fonts-crosextra-carlito \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 10001 app && mkdir -p /data && chown app /data

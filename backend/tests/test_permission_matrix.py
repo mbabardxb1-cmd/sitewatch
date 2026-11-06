@@ -160,6 +160,7 @@ ROUTES = {
     ("PUT", "/api/v1/settings/system"): (["settings.manage"], False, J({"report_generation_day": 3})),
     ("GET", "/api/v1/settings/audit-log"): (["settings.manage"], False, None),
     ("GET", "/api/v1/settings/branding"): (["settings.manage"], False, None),
+    ("GET", "/api/v1/settings/branding/preview"): (["settings.manage"], False, None),
     ("PUT", "/api/v1/settings/branding"): (["settings.manage"], False, J({"company_name": "Agency"})),
     ("POST", "/api/v1/settings/branding/logo"): (["settings.manage"], False,
                                                   lambda w: {"files": {"file": ("l.png", png_bytes(), "image/png")}}),
