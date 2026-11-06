@@ -461,3 +461,10 @@ export function lastMonths(n: number): string[] {
   }
   return out;
 }
+
+/** "every 5 minutes", "every hour", "every 6 hours" ... */
+export function fmtInterval(seconds: number): string {
+  if (seconds % 3600 === 0) { const h = seconds / 3600; return h === 1 ? "every hour" : `every ${h} hours`; }
+  if (seconds % 60 === 0) { const m = seconds / 60; return m === 1 ? "every minute" : `every ${m} minutes`; }
+  return `every ${seconds} seconds`;
+}

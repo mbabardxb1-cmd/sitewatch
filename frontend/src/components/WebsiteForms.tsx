@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, ErrorNote, Field, inputClass } from "@/components/ui";
-import type { CrawlConfig } from "@/lib/api";
+import { fmtInterval, type CrawlConfig } from "@/lib/api";
 
 export type MonitoringValues = {
   name: string;
@@ -32,6 +32,49 @@ export const DEFAULT_MONITORING: MonitoringValues = {
   notification_recipients: [],
 };
 
+// Snap points for the check interval (seconds). The server accepts 1 minute to 24 hours.
+const INTERVAL_STOPS = [60, 120, 180, 240, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
+const INTERVAL_LABELS: Record<number, string> = { 60: "1m", 300: "5m", 900: "15m", 3600: "1h", 21600: "6h", 86400: "24h" };
+
+function nearestStop(seconds: number): number {
+  let best = 0;
+  INTERVAL_STOPS.forEach((s, i) => { if (Math.abs(s - seconds) < Math.abs(INTERVAL_STOPS[best] - seconds)) best = i; });
+  return best;
+}
+
+function IntervalSlider({ value, onChange }: { value: number; onChange: (seconds: number) => void }) {
+  const idx = nearestStop(value);
+  const last = INTERVAL_STOPS.length - 1;
+  const pct = (i: number) => (i / last) * 100;
+  return (
+    <div className="space-y-2 rounded-md border border-slate-200 p-3 sm:col-span-2 lg:col-span-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <label htmlFor="check-interval" className="text-sm font-medium text-slate-800">Check interval</label>
+        <span className="text-sm text-slate-600">Your website will be checked <strong className="text-slate-900">{fmtInterval(value)}</strong>.</span>
+      </div>
+      <div className="relative pb-5">
+        <input id="check-interval" type="range" min={0} max={last} step={1} value={idx}
+               onChange={(e) => onChange(INTERVAL_STOPS[Number(e.target.value)])}
+               aria-valuetext={fmtInterval(value)}
+               className="h-2 w-full cursor-pointer accent-slate-900 disabled:cursor-not-allowed" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 text-xs text-slate-500" aria-hidden>
+          {INTERVAL_STOPS.map((s, i) => INTERVAL_LABELS[s] && (
+            <span key={s} className="absolute"
+                  style={{ left: `${pct(i)}%`, transform: i === 0 ? "none" : i === last ? "translateX(-100%)" : "translateX(-50%)" }}>
+              {INTERVAL_LABELS[s]}
+            </span>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-slate-500">
+        {value <= 300
+          ? "Recommended for important websites. Failed checks are retried after 30 seconds before an outage is confirmed."
+          : `An outage could go unnoticed for up to ${fmtInterval(value).replace("every ", "")}. Use 5 minutes or less for websites that matter.`}
+      </p>
+    </div>
+  );
+}
+
 const splitList = (s: string) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
 
 export function MonitoringFields({ v, set, disabled }: {
@@ -51,11 +94,7 @@ export function MonitoringFields({ v, set, disabled }: {
         <input className={inputClass} required placeholder="https://www.example.com" value={v.base_url}
                onChange={(e) => set({ ...v, base_url: e.target.value })} />
       </Field>
-      <Field label="Check interval">
-        <select className={inputClass} value={v.check_interval_s} onChange={num("check_interval_s")}>
-          {[1, 2, 3, 4, 5].map((m) => <option key={m} value={m * 60}>Every {m} minute{m > 1 ? "s" : ""}</option>)}
-        </select>
-      </Field>
+      <IntervalSlider value={v.check_interval_s} onChange={(s) => set({ ...v, check_interval_s: s })} />
       <Field label="Retries before outage" hint="Failed checks are retried this many times before an outage is confirmed.">
         <input className={inputClass} type="number" min={0} max={10} value={v.retry_attempts} onChange={num("retry_attempts")} />
       </Field>

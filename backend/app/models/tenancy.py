@@ -48,7 +48,7 @@ class Website(UUIDPk, Timestamps, Base):
     __tablename__ = "websites"
     __table_args__ = (
         sa.Index("ix_websites_due", "status", "next_check_at"),
-        sa.CheckConstraint("check_interval_s BETWEEN 60 AND 300", name="check_interval_range"),
+        sa.CheckConstraint("check_interval_s BETWEEN 60 AND 86400", name="check_interval_range"),
         sa.CheckConstraint("audit_day_of_month BETWEEN 1 AND 28", name="audit_day_range"),
         sa.CheckConstraint("retry_attempts BETWEEN 0 AND 10", name="retry_range"),
     )

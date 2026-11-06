@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, ErrorNote, HealthCell, inputClass } from "@/components/ui";
-import { api, fmtDate, isStaffView, type ClientOrg, type Website } from "@/lib/api";
+import { api, fmtDate, fmtInterval, isStaffView, type ClientOrg, type Website } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function WebsitesPage() {
@@ -78,7 +78,7 @@ export default function WebsitesPage() {
                     <td className="hidden py-2 pr-4 capitalize md:table-cell">
                       {w.status}
                       {isStaffView(w) && w.status === "active" && (
-                        <div className="text-xs normal-case text-slate-500">every {w.check_interval_s / 60} min</div>
+                        <div className="text-xs normal-case text-slate-500">{fmtInterval(w.check_interval_s)}</div>
                       )}
                     </td>
                     <td className="hidden py-2 pr-4 text-slate-600 md:table-cell">{fmtDate(w.last_checked_at)}</td>

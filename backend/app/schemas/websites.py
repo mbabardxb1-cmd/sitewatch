@@ -93,7 +93,7 @@ def _check_codes(v: list[int] | None) -> list[int] | None:
 
 
 class MonitoringSettings(BaseModel):
-    check_interval_s: int = Field(default=300, ge=60, le=300, description="1–5 minutes")
+    check_interval_s: int = Field(default=300, ge=60, le=86400, description="1 minute to 24 hours")
     retry_attempts: int = Field(default=2, ge=0, le=10)
     recovery_threshold: int = Field(default=1, ge=1, le=10)
     timeout_s: int = Field(default=15, ge=2, le=60)
@@ -117,7 +117,7 @@ class WebsiteUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     base_url: str | None = Field(default=None, max_length=2048)
     status: Literal["active", "paused"] | None = None
-    check_interval_s: int | None = Field(default=None, ge=60, le=300)
+    check_interval_s: int | None = Field(default=None, ge=60, le=86400)
     retry_attempts: int | None = Field(default=None, ge=0, le=10)
     recovery_threshold: int | None = Field(default=None, ge=1, le=10)
     timeout_s: int | None = Field(default=None, ge=2, le=60)
