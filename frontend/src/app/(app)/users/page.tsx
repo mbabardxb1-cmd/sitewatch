@@ -1,7 +1,8 @@
 "use client";
 
-import { Users } from "lucide-react";
+import { Pencil, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { UserEditor } from "@/components/UserEditor";
 import { Button, Card, ErrorNote, inputClass, PageHeader } from "@/components/ui";
 import { api, type ClientOrg, type UserRow } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -20,6 +21,7 @@ export default function UsersPage() {
   const [form, setForm] = useState(empty);
   const [clients, setClients] = useState<ClientOrg[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<UserRow | null>(null);
 
   const load = useCallback(() => {
     api<UserRow[]>("/users").then(setUsers).catch((e) => setError(e.message));
@@ -92,12 +94,15 @@ export default function UsersPage() {
           websites they are assigned to on the website&apos;s page, and only within their own organization.
         </p>
       </Card>
-      <Card title={`${users.length} users`}>
+      {editing && (
+        <UserEditor user={editing} clients={clients} isSelf={editing.id === me?.id}
+                    onClose={() => setEditing(null)} onSaved={load} />
+      )}
+      <Card title={`${users.length} users`} flush>
         <div className="overflow-x-auto">
           <table className="sw-table">
-            <thead className="text-xs uppercase text-slate-500">
-              <tr><th className="py-2 pr-4">Email</th><th className="pr-4">Name</th><th className="pr-4">Role</th>
-                <th className="pr-4">Status</th><th className="pr-4">Last login</th><th /></tr>
+            <thead>
+              <tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Last login</th><th><span className="sr-only">Actions</span></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {users.map((u) => (
@@ -107,15 +112,24 @@ export default function UsersPage() {
                   <td className="pr-4">
                     {u.roles.map((r) => ROLE_LABEL[r] ?? r).join(", ")}
                     {u.client_id && <div className="text-xs text-slate-500">{clientName(u.client_id) ?? "Client org"}</div>}
+                    {u.custom_permissions && <div className="text-xs font-medium text-amber-700">Custom permissions</div>}
                   </td>
-                  <td className="pr-4">{u.is_active ? "Active" : "Deactivated"}</td>
+                  <td className="pr-4">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${u.is_active
+                      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20" : "bg-slate-100 text-slate-600 ring-slate-500/15"}`}>
+                      {u.is_active ? "Active" : "Deactivated"}
+                    </span>
+                  </td>
                   <td className="pr-4">{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : "Never"}</td>
-                  <td className="text-right">
-                    {u.id !== me?.id && (
-                      <Button variant={u.is_active ? "danger" : "secondary"} onClick={() => toggle(u)}>
-                        {u.is_active ? "Deactivate" : "Activate"}
-                      </Button>
-                    )}
+                  <td>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => setEditing(u)}><Pencil size={14} />Edit</Button>
+                      {u.id !== me?.id && (
+                        <Button size="sm" variant={u.is_active ? "danger" : "secondary"} onClick={() => toggle(u)}>
+                          {u.is_active ? "Deactivate" : "Activate"}
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

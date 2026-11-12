@@ -5,14 +5,23 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import client_ip, require
-from app.auth.permissions import SUPER_ADMIN
+from app.auth.permissions import CUSTOMIZABLE_ROLES, PERMISSION_GROUPS, PERMISSIONS, ROLES, SUPER_ADMIN
 from app.auth.security import hash_password
 from app.db import get_db
 from app.models import User
-from app.schemas.users import RolesUpdate, UserCreate, UserOut, UserUpdate
+from app.schemas.users import PermissionsUpdate, RolesUpdate, UserCreate, UserOut, UserUpdate, UserWebsitesUpdate
 from app.services import auth_service
 from app.services.audit_log import record
-from app.services.user_service import apply_role, check_password, create_user, ensure_other_active_admin, to_out
+from app.services.user_service import (
+    apply_role,
+    check_password,
+    create_user,
+    eligible_websites,
+    ensure_other_active_admin,
+    set_permissions,
+    set_user_websites,
+    to_out,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 Admin = Depends(require("user.manage"))
@@ -36,6 +45,17 @@ def add_user(body: UserCreate, request: Request, db: Session = Depends(get_db), 
     record(db, actor.id, "user.create", "user", u.id, client_ip(request), role=body.role)
     db.commit()
     return to_out(u)
+
+
+@router.get("/permission-catalogue")
+def permission_catalogue(_: User = Admin):
+    """Every permission with its description and group, and which roles hold it by default."""
+    return {
+        "groups": [{"name": g, "permissions": [{"key": k, "description": PERMISSIONS[k],
+                                                "roles": [r for r, (_, grants) in ROLES.items() if k in grants]}
+                                               for k in keys]} for g, keys in PERMISSION_GROUPS.items()],
+        "customizable_roles": sorted(CUSTOMIZABLE_ROLES),
+    }
 
 
 @router.get("/{user_id}", response_model=UserOut)
@@ -98,3 +118,36 @@ def activate(user_id: uuid.UUID, request: Request, db: Session = Depends(get_db)
     record(db, actor.id, "user.activate", "user", u.id, client_ip(request))
     db.commit()
     return to_out(u)
+
+
+@router.put("/{user_id}/permissions", response_model=UserOut)
+def update_permissions(user_id: uuid.UUID, body: PermissionsUpdate, request: Request, db: Session = Depends(get_db),
+                       actor: User = Admin):
+    u = _get(db, user_id)
+    before = u.permission_keys
+    set_permissions(db, u, set(body.permissions))
+    db.refresh(u)
+    after = u.permission_keys
+    record(db, actor.id, "user.permissions", "user", u.id, client_ip(request),
+           added=sorted(after - before), removed=sorted(before - after))
+    db.commit()
+    return to_out(u)
+
+
+@router.get("/{user_id}/websites")
+def user_websites(user_id: uuid.UUID, db: Session = Depends(get_db), _: User = Admin):
+    u = _get(db, user_id)
+    sees_all = "website.all" in u.permission_keys
+    return {"sees_all": sees_all, "websites": [
+        {"id": w.id, "name": w.name, "base_url": w.base_url, "client_name": w.client.name,
+         "assigned": any(x.id == u.id for x in w.assigned_users)} for w in eligible_websites(db, u)]}
+
+
+@router.put("/{user_id}/websites")
+def update_user_websites(user_id: uuid.UUID, body: UserWebsitesUpdate, request: Request, db: Session = Depends(get_db),
+                         actor: User = Admin):
+    u = _get(db, user_id)
+    set_user_websites(db, u, set(body.website_ids))
+    record(db, actor.id, "user.websites", "user", u.id, client_ip(request), website_ids=[str(i) for i in body.website_ids])
+    db.commit()
+    return user_websites(user_id, db, actor)

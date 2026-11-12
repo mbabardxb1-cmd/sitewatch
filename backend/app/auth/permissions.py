@@ -54,6 +54,21 @@ PERMISSIONS: dict[str, str] = {
     "maintenance.write": "Record maintenance work performed",
 }
 
+# Grouping for the permission editor.
+PERMISSION_GROUPS: dict[str, list[str]] = {
+    "Administration": ["user.manage", "client.manage", "client.read", "settings.manage", "integration.manage",
+                       "notification.manage", "notification.read"],
+    "Websites": ["website.all", "website.read", "website.write", "website.assign", "website.crawl_config"],
+    "Uptime monitoring": ["uptime.read_detailed", "uptime.check_now", "incident.read", "incident.manage"],
+    "Audits & issues": ["audit.read_detailed", "audit.run", "audit.export", "audit.delete", "issue.read_summary",
+                        "issue.read_detailed", "issue.manage", "issue.note.read", "issue.note.write"],
+    "Domain, hosting & SSL": ["expiry.read", "expiry.read_detailed", "expiry.write"],
+    "Reports & maintenance": ["report.read", "report.read_all", "report.generate", "report.approve", "maintenance.write"],
+}
+# Per-user permission changes are allowed for these roles only: super administrators always hold
+# everything, and client users keep the fixed read-only set (it is what keeps tenants isolated).
+CUSTOMIZABLE_ROLES = {"developer"}
+
 ROLES: dict[str, tuple[str, set[str]]] = {
     SUPER_ADMIN: ("Super Administrator", set(PERMISSIONS)),
     DEVELOPER: (

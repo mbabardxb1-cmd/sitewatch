@@ -66,6 +66,18 @@ export type UserRow = {
   roles: string[];
   last_login_at: string | null;
   created_at: string;
+  permissions: string[];
+  custom_permissions: boolean;
+};
+
+export type PermissionCatalogue = {
+  groups: { name: string; permissions: { key: string; description: string; roles: string[] }[] }[];
+  customizable_roles: string[];
+};
+
+export type UserWebsites = {
+  sees_all: boolean;
+  websites: { id: string; name: string; base_url: string; client_name: string; assigned: boolean }[];
 };
 
 export type Health = "healthy" | "warning" | "critical" | "unknown";

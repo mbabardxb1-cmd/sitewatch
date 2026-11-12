@@ -37,6 +37,8 @@ class UserOut(BaseModel):
     roles: list[str]
     last_login_at: datetime | None
     created_at: datetime
+    permissions: list[str] = []
+    custom_permissions: bool = False
 
 
 class UserCreate(BaseModel):
@@ -56,3 +58,11 @@ class UserUpdate(BaseModel):
 class RolesUpdate(BaseModel):
     role: RoleKey
     client_id: uuid.UUID | None = None
+
+
+class PermissionsUpdate(BaseModel):
+    permissions: list[str] = Field(max_length=100, description="The complete set the user should have")
+
+
+class UserWebsitesUpdate(BaseModel):
+    website_ids: list[uuid.UUID] = Field(max_length=2000)

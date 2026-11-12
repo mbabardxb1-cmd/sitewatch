@@ -39,6 +39,22 @@ user_role_assignments = sa.Table(
 )
 
 
+user_permission_overrides = sa.Table(
+    "user_permission_overrides",
+    Base.metadata,
+    sa.Column("user_id", sa.Uuid, fk("users.id"), primary_key=True),
+    sa.Column("permission_id", sa.Uuid, fk("permissions.id"), primary_key=True),
+    # True = granted on top of the role, False = removed from the role's permissions.
+    sa.Column("granted", sa.Boolean, nullable=False),
+    sa.Column("created_at", DateTime(timezone=True), server_default=sa.func.now()),
+)
+
+
+class PermissionOverride(Base):
+    __table__ = user_permission_overrides
+    permission: Mapped["Permission"] = relationship(lazy="joined")
+
+
 class User(UUIDPk, Timestamps, Base):
     __tablename__ = "users"
     email: Mapped[str] = mapped_column(String(320), unique=True)
@@ -52,14 +68,27 @@ class User(UUIDPk, Timestamps, Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     roles: Mapped[list[Role]] = relationship(secondary=user_role_assignments, lazy="selectin")
+    permission_overrides: Mapped[list[PermissionOverride]] = relationship(
+        lazy="selectin", cascade="all, delete-orphan", primaryjoin="User.id == PermissionOverride.user_id")
 
     @property
     def role_keys(self) -> set[str]:
         return {r.key for r in self.roles}
 
     @property
-    def permission_keys(self) -> set[str]:
+    def role_permission_keys(self) -> set[str]:
         return {p.key for r in self.roles for p in r.permissions}
+
+    @property
+    def permission_keys(self) -> set[str]:
+        """Role permissions, adjusted by per-user overrides (staff only; see user_service)."""
+        keys = self.role_permission_keys
+        for o in self.permission_overrides:
+            if o.granted:
+                keys.add(o.permission.key)
+            else:
+                keys.discard(o.permission.key)
+        return keys
 
 
 class UserSession(UUIDPk, Timestamps, Base):

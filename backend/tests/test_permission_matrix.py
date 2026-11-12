@@ -81,6 +81,10 @@ ROUTES = {
     ("GET", "/api/v1/users/{user_id}"): (["user.manage"], False, None),
     ("PATCH", "/api/v1/users/{user_id}"): (["user.manage"], False, J({"full_name": "Renamed"})),
     ("PUT", "/api/v1/users/{user_id}/role"): (["user.manage"], False, J({"role": "developer"})),
+    ("GET", "/api/v1/users/permission-catalogue"): (["user.manage"], False, None),
+    ("PUT", "/api/v1/users/{user_id}/permissions"): (["user.manage"], False, J({"permissions": []})),
+    ("GET", "/api/v1/users/{user_id}/websites"): (["user.manage"], False, None),
+    ("PUT", "/api/v1/users/{user_id}/websites"): (["user.manage"], False, J({"website_ids": []})),
     ("POST", "/api/v1/users/{user_id}/activate"): (["user.manage"], False, None),
     ("POST", "/api/v1/users/{user_id}/deactivate"): (["user.manage"], False, None),
     # clients
