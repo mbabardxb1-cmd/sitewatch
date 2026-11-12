@@ -101,6 +101,7 @@ class MonitoringSettings(BaseModel):
     expected_status_codes: list[int] = Field(default_factory=lambda: [200], min_length=1, max_length=20)
     audit_day_of_month: int = Field(default=1, ge=1, le=28)
     auto_audit: bool = True
+    malware_auto_scan: bool = False
     ssl_monitoring: bool = True
     notification_recipients: list[EmailStr] = Field(default_factory=list, max_length=50)
 
@@ -126,6 +127,7 @@ class WebsiteUpdate(BaseModel):
     expected_status_codes: list[int] | None = Field(default=None, min_length=1, max_length=20)
     audit_day_of_month: int | None = Field(default=None, ge=1, le=28)
     auto_audit: bool | None = None
+    malware_auto_scan: bool | None = None
     ssl_monitoring: bool | None = None
     notification_recipients: list[EmailStr] | None = Field(default=None, max_length=50)
 
@@ -169,6 +171,7 @@ class WebsiteStaffView(WebsiteClientView):
     next_check_at: datetime | None
     audit_day_of_month: int
     auto_audit: bool
+    malware_auto_scan: bool
     crawl_config: dict
     ssl_monitoring: bool
     notification_recipients: list[str]

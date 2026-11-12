@@ -14,6 +14,7 @@ import hashlib
 import logging
 import time
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -133,6 +134,59 @@ def claim_run(db: Session, run_id) -> AuditRun | None:
     return db.get(AuditRun, rid) if rid else None
 
 
+MALWARE_SCAN_PAGES = 100
+SAFE_BROWSING_SETTING = "malware.safe_browsing_key"
+
+
+def safe_browsing_key(db: Session) -> str | None:
+    from app.expiry.hosting import CredentialsUnavailable, decrypt_credentials
+    from app.models import SystemSetting
+
+    row = db.get(SystemSetting, SAFE_BROWSING_SETTING)
+    if not row or not row.value:
+        return None
+    try:
+        import base64
+
+        return decrypt_credentials(base64.b64decode(row.value["enc"])).get("api_key")
+    except (CredentialsUnavailable, KeyError, ValueError, TypeError):
+        return None
+
+
+def create_auto_malware_runs(db: Session, now: datetime | None = None) -> list:
+    """Daily malware scan for websites that asked for one: at most one per ~day, never while
+    another audit of the same website is queued or running."""
+    now = now or datetime.now(UTC)
+    sites = db.scalars(select(Website).join(Client, Client.id == Website.client_id).where(
+        Website.status == "active", Client.is_active.is_(True), Website.malware_auto_scan.is_(True))).unique().all()
+    created = []
+    for site in sites:
+        busy = db.scalar(select(AuditRun.id).where(AuditRun.website_id == site.id, AuditRun.status.in_(("queued", "running"))))
+        recent = db.scalar(select(AuditRun.id).where(AuditRun.website_id == site.id, AuditRun.trigger == "auto",
+                                                     AuditRun.created_at > now - timedelta(hours=23)))
+        if busy or recent:
+            continue
+        config = {**site.crawl_config, "categories": ["malware"],
+                  "max_pages": min(int(site.crawl_config.get("max_pages", 500)), MALWARE_SCAN_PAGES)}
+        run = AuditRun(website_id=site.id, trigger="auto", status="queued", config_snapshot=config)
+        db.add(run)
+        db.flush()
+        created.append(run.id)
+    db.commit()
+    return created
+
+
+def previous_script_hosts(db: Session, website_id, before) -> list[str] | None:
+    """Third-party script hosts recorded by the last finished malware scan (None = no baseline)."""
+    rows = db.scalars(select(AuditRun).where(AuditRun.website_id == website_id, AuditRun.status.in_(("completed", "partial")),
+                                             AuditRun.created_at < before).order_by(AuditRun.created_at.desc()).limit(20))
+    for r in rows:
+        m = (r.summary or {}).get("malware")
+        if m and "script_hosts" in m:
+            return m["script_hosts"]
+    return None
+
+
 def expected_duration_s(db: Session, website_id) -> float | None:
     """Duration of the last finished audit of this website, used for the first time estimate."""
     prev = db.execute(select(AuditRun.started_at, AuditRun.finished_at).where(
@@ -181,15 +235,29 @@ def execute_run(db: Session, run_id, crawler_factory=Crawler, progress=None) -> 
             MonitoredUrl.website_id == site.id, MonitoredUrl.is_important.is_(True)))]
         base_url, hostname, is_https = site.base_url, site.hostname, site.base_url.startswith("https://")
         db.commit()  # release the transaction during the (long) crawl
+        sb_key = safe_browsing_key(db) if (categories is None or "malware" in categories) else None
+        prev_hosts = previous_script_hosts(db, site.id, run.created_at)
+        db.commit()
         cr = crawler_factory(base_url, config, important, categories=categories,
                              progress=progress or ProgressWriter(run_id, expected)).run()
+        blacklist = None
+        if categories is None or "malware" in categories:
+            if sb_key:
+                from app.audit.malware import safe_browsing_lookup
+
+                urls = [base_url] + [u for u in cr.pages if u != base_url][:300] + sorted(
+                    {f"{urlsplit(u).scheme}://{urlsplit(u).netloc}/" for u in cr.script_sources})[:150]
+                blacklist = safe_browsing_lookup(sb_key, urls)
+            else:
+                blacklist = {"checked": False, "reason": "Add a Google Safe Browsing API key in Settings to check blacklists"}
         cert, cert_error = None, None
         if is_https and (categories is None or "security" in categories):
             try:
                 cert = inspect_certificate(hostname, _port(base_url), timeout=float(config.get("timeout_s", 15)))
             except (BlockedTargetError, DnsResolutionError, OSError) as e:
                 cert_error = str(e)[:300] or type(e).__name__
-        outcome = evaluate(cr, config, cert, cert_error, is_https, categories=categories)
+        outcome = evaluate(cr, config, cert, cert_error, is_https, categories=categories, blacklist=blacklist,
+                           previous_script_hosts=prev_hosts)
         # Lock the run: if it was stopped while we were crawling, keep nothing.
         db.refresh(run, with_for_update=True)
         if run.status != "running":
@@ -257,15 +325,16 @@ def persist_outcome(db: Session, run: AuditRun, site: Website, outcome: AuditOut
     site.last_audit_at = now
 
     notes: list[int] = []
-    label = "scheduled monthly" if run.trigger == "scheduled" else "manual"
+    label = {"scheduled": "scheduled monthly", "auto": "automatic malware"}.get(run.trigger, "manual")
     subject, body = compose("audit_completed", site, [
         f"The {label} technical audit finished ({run.status}).",
         f"Pages crawled: {run.pages_crawled}",
         "Issues by severity: " + ", ".join(f"{k} {v}" for k, v in by_sev.items() if v) if any(by_sev.values()) else "No issues found.",
         f"New: {len(diff['new'])} · Recurring: {len(diff['recurring'])} · Resolved (verified): {len(diff['resolved'])}",
     ])
-    lid = queue_notification(db, event_type="audit_completed", website=site, dedup_key=f"audit:{run.id}:completed",
-                             subject=subject, body=body)
+    # Daily automatic scans only email when they find something serious (below), not every day.
+    lid = None if run.trigger == "auto" else queue_notification(
+        db, event_type="audit_completed", website=site, dedup_key=f"audit:{run.id}:completed", subject=subject, body=body)
     if lid:
         notes.append(lid)
     serious_new = [i for i in db.scalars(select(Issue).where(Issue.id.in_(diff["new"] + diff["recurring"])))

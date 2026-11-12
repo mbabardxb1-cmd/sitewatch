@@ -171,6 +171,17 @@ def schedule_audits() -> int:
 
 
 @celery.task
+def schedule_malware_scans() -> int:
+    from app.audit.service import create_auto_malware_runs
+
+    with SessionLocal() as db:
+        ids = create_auto_malware_runs(db)
+    for rid in ids:
+        run_audit.delay(str(rid))
+    return len(ids)
+
+
+@celery.task
 def fail_stuck_audits() -> int:
     """Fail orphaned runs and re-send queued runs whose task message was lost (e.g. restart)."""
     from app.audit.service import fail_stuck_runs

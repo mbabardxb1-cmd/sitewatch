@@ -98,7 +98,7 @@ export default function AuditsPage() {
                     <td>
                       <span className="font-medium text-slate-900">{auditKind(r.categories)}</span>
                       <div className="text-xs text-slate-500">
-                        {r.trigger === "scheduled" ? `Automatic, ${r.period}` : "Started manually"}
+                        {r.trigger === "scheduled" ? `Automatic, ${r.period}` : r.trigger === "auto" ? "Automatic daily scan" : "Started manually"}
                         {auditKind(r.categories) === "Custom audit" && r.categories && `: ${r.categories.map((c) => CATEGORY_LABEL[c] ?? c).join(", ")}`}
                       </div>
                       {r.status === "cancelled" && r.error && <div className="text-xs text-slate-500">{r.error}</div>}

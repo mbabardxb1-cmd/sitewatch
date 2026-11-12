@@ -14,6 +14,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         routes = self.server.routes  # type: ignore[attr-defined]
         self.server.hits.append((self.command, self.path))  # type: ignore[attr-defined]
         r = routes.get(self.path) or routes.get(self.path.split("?")[0])
+        if r is not None and "cloak" in r:  # serve something else to Google / visitors from Google
+            ua, ref = self.headers.get("User-Agent", "").lower(), self.headers.get("Referer", "").lower()
+            if "googlebot" in ua or "google." in ref:
+                r = r["cloak"]
         if r is None:
             status, headers, body, delay = 404, {"Content-Type": "text/html"}, b"<title>Not found</title>", 0
         else:

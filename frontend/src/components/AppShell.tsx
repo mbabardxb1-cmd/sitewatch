@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Activity, AlertTriangle, Bell, Building2, FileText, Globe, LayoutDashboard, LogOut, Menu, Network,
+  Activity, AlertTriangle, Bell, Bug, Building2, FileText, Globe, LayoutDashboard, LogOut, Menu, Network,
   ScanSearch, Settings, ShieldCheck, Users, X, type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -25,6 +25,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: "/uptime", label: "Uptime", perm: "incident.read", icon: Activity },
       { href: "/audits", label: "Technical Audits", perm: "audit.read_detailed", icon: ScanSearch },
+      { href: "/malware", label: "Malware Scan", perm: "audit.read_detailed", icon: Bug },
       { href: "/issues", label: "Issues", perm: "issue.read_summary", icon: AlertTriangle },
       { href: "/domains", label: "Domain & Hosting", perm: "expiry.read", icon: Network },
       { href: "/ssl", label: "SSL Certificates", perm: "expiry.read", icon: ShieldCheck },

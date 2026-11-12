@@ -76,7 +76,7 @@ export function WebsiteAuditCard({ websiteId, auditDay, archived }: { websiteId:
                   {runs.map((r) => (
                     <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5">
                       <Link href={`/audits/${r.id}`} className="font-medium hover:underline">{fmtDate(r.finished_at ?? r.created_at)}</Link>
-                      <span>{auditKind(r.categories)}{r.trigger === "scheduled" ? " (automatic)" : ""}</span>
+                      <span>{auditKind(r.categories)}{r.trigger === "scheduled" || r.trigger === "auto" ? " (automatic)" : ""}</span>
                       <RunStatus run={r} />
                       {(r.status === "completed" || r.status === "partial") && <SeverityCounts run={r} />}
                     </li>

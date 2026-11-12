@@ -53,6 +53,7 @@ celery.conf.update(
         "refresh-expiry-data": {"task": "app.worker.tasks.refresh_expiry", "schedule": crontab(minute=41)},
         "expiry-alerts": {"task": "app.worker.tasks.expiry_alerts", "schedule": crontab(minute=47)},
         "schedule-monthly-reports": {"task": "app.worker.tasks.schedule_reports", "schedule": crontab(minute=53)},
+        "daily-malware-scans": {"task": "app.worker.tasks.schedule_malware_scans", "schedule": crontab(minute=31)},
         "fail-stuck-audits": {"task": "app.worker.tasks.fail_stuck_audits", "schedule": crontab(minute="*/5")},
         "requeue-stuck-notifications": {"task": "app.worker.tasks.requeue_pending_notifications",
                                         "schedule": crontab(minute="*/10")},

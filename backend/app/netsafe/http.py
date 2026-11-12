@@ -112,7 +112,7 @@ class TooManyRedirects(Exception):
 
 
 def safe_fetch(client: httpx.Client, url: str, method: str = "GET", read_body_bytes: int = 0,
-               max_redirects: int = MAX_REDIRECTS) -> FetchResult:
+               max_redirects: int = MAX_REDIRECTS, headers: dict | None = None) -> FetchResult:
     """Fetch url, following redirects manually with re-validation of every hop.
 
     Raises UnsafeUrlError, BlockedTargetError, DnsResolutionError, TooManyRedirects or httpx errors.
@@ -127,7 +127,7 @@ def safe_fetch(client: httpx.Client, url: str, method: str = "GET", read_body_by
             raise TooManyRedirects(hops, loop=True)
         seen.add(normalized)
         start = time.perf_counter()
-        with client.stream(method, normalized) as resp:
+        with client.stream(method, normalized, headers=headers) as resp:
             total_ms += int((time.perf_counter() - start) * 1000)
             body = b""
             if read_body_bytes and not resp.is_redirect:

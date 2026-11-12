@@ -95,7 +95,7 @@ ROUTES = {
     # websites
     ("GET", "/api/v1/websites"): (["website.read"], False, None),
     ("POST", "/api/v1/websites"): (["website.write"], False, J(lambda w: {
-        "client_id": str(w["client_a"].id), "name": "New site", "base_url": f"https://n{uuid.uuid4().hex[:6]}.example.com"})),
+        "client_id": str(w["client_a"].id), "name": "New site", "base_url": f"https://new-{uuid.uuid4().hex[:6]}.example.net"})),
     ("GET", "/api/v1/websites/{website_id}"): (["website.read"], True, None),
     ("PATCH", "/api/v1/websites/{website_id}"): (["website.write"], True, J({"name": "Renamed site"})),
     ("POST", "/api/v1/websites/{website_id}/archive"): (["website.write"], True, None),
@@ -126,6 +126,9 @@ ROUTES = {
     ("GET", "/api/v1/audits"): (["audit.read_detailed"], False, None),
     ("POST", "/api/v1/websites/{website_id}/audits"): (["audit.run"], True, None),
     ("GET", "/api/v1/audit-categories"): (["audit.read_detailed"], False, None),
+    ("GET", "/api/v1/malware/overview"): (["audit.read_detailed"], False, None),
+    ("GET", "/api/v1/settings/malware"): (["settings.manage"], False, None),
+    ("PUT", "/api/v1/settings/malware"): (["settings.manage"], False, J({"api_key": ""})),
     ("DELETE", "/api/v1/audits/{run_id}"): (["audit.delete"], True, None),
     ("POST", "/api/v1/audits/{run_id}/stop"): (["audit.run"], True, None),
     ("GET", "/api/v1/audits/{run_id}"): (["audit.read_detailed"], True, None),

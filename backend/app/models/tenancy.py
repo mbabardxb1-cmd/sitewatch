@@ -80,6 +80,8 @@ class Website(UUIDPk, Timestamps, Base):
     audit_day_of_month: Mapped[int] = mapped_column(default=1)
     # Run the scheduled monthly audit automatically (manual audits are always possible).
     auto_audit: Mapped[bool] = mapped_column(default=True, server_default=sa.true())
+    # Daily automatic malware scan (malware category only, up to 100 pages).
+    malware_auto_scan: Mapped[bool] = mapped_column(default=False, server_default=sa.false())
     crawl_config: Mapped[dict] = mapped_column(JSONB, default=lambda: dict(DEFAULT_CRAWL_CONFIG))
     last_audit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

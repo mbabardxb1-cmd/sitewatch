@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Check, FileSearch, Gauge, Image as ImageIcon, Layers, Link2, Lock, Play, Search, SlidersHorizontal, Smartphone,
+  Bug, Check, FileSearch, Gauge, Image as ImageIcon, Layers, Link2, Lock, Play, Search, SlidersHorizontal, Smartphone,
   SquarePen, Wrench, type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -15,6 +15,7 @@ export const AUDIT_CATEGORIES: { key: string; label: string; description: string
   { key: "performance", label: "Performance", description: "Slow server responses and oversized pages.", icon: Gauge },
   { key: "security", label: "Security & SSL", description: "Certificate validity, insecure (mixed) content and security headers.", icon: Lock },
   { key: "forms", label: "Forms", description: "Form targets exist, submit securely and have spam protection. Forms are never submitted.", icon: SquarePen },
+  { key: "malware", label: "Malware & blacklist", description: "Injected code, crypto-miners, card skimmers, hidden spam and iframes, cloaking, Google blacklist.", icon: Bug },
   { key: "mobile", label: "Mobile & accessibility", description: "Mobile viewport, page language and labelled form fields.", icon: Smartphone },
 ];
 export const CATEGORY_LABEL = Object.fromEntries(AUDIT_CATEGORIES.map((c) => [c.key, c.label]));
@@ -27,6 +28,8 @@ export const AUDIT_PRESETS: { key: string; label: string; description: string; c
     categories: ["links", "performance", "security", "forms"], icon: Wrench },
   { key: "seo", label: "SEO audit", description: "Titles, descriptions, headings, sitemap, indexing, links, images, mobile.",
     categories: ["seo", "links", "images", "mobile"], icon: Search },
+  { key: "malware", label: "Malware scan", description: "Malicious code, spam injection, hidden iframes, cloaking and blacklist status.",
+    categories: ["malware"], icon: Bug },
 ];
 
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
@@ -81,7 +84,7 @@ export function AuditLauncher({ sites, websiteId, onStarted, onCancel }: {
       )}
       <div>
         <span className="mb-2 block text-sm font-medium text-slate-700">Audit type</span>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {AUDIT_PRESETS.map(({ key, label, description, categories, icon: Icon }) => {
             const on = preset?.key === key;
             return (

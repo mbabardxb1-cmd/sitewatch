@@ -21,6 +21,8 @@ class PageFacts:
     # Sub-resources that load automatically (scripts, stylesheets, iframes, media), absolute URLs.
     resources: list[str] = field(default_factory=list)
     forms: list["FormFacts"] = field(default_factory=list)
+    scripts: list[str] = field(default_factory=list)  # external <script src>, absolute
+    iframes: list[tuple[str, bool]] = field(default_factory=list)  # (absolute src, hidden/zero-size)
     # Anti-spam markers seen anywhere on the page (CAPTCHA widgets/scripts, honeypot fields).
     spam_protection: bool = False
 
@@ -74,8 +76,18 @@ class _Parser(HTMLParser):
             self.facts.h1_count += 1
         elif tag == "script" and a.get("src"):
             self._resource(a.get("src"))
+            u = self._abs(a.get("src"))
+            if u:
+                self.facts.scripts.append(u)
         elif tag in ("iframe", "audio", "video", "source", "embed") and a.get("src"):
             self._resource(a.get("src"))
+            if tag == "iframe":
+                u = self._abs(a.get("src"))
+                style = a.get("style", "").replace(" ", "").lower()
+                tiny = a.get("width", "").strip().rstrip("px") in ("0", "1") or a.get("height", "").strip().rstrip("px") in ("0", "1")
+                hidden = tiny or "display:none" in style or "visibility:hidden" in style or "hidden" in a
+                if u:
+                    self.facts.iframes.append((u, hidden))
         elif tag == "form":
             action = self._abs(a.get("action")) if a.get("action", "").strip() else ""
             self._form = FormFacts(action=action or "", method=(a.get("method") or "get").strip().lower() or "get")

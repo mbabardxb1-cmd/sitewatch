@@ -12,6 +12,7 @@ from app.api.v1 import (
     dashboard,
     expiry,
     health,
+    malware,
     monitoring,
     notifications,
     reports,
@@ -73,7 +74,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, prefix="/api")
     for r in (auth.router, users.router, clients.router, websites.router, dashboard.router, monitoring.router,
-              notifications.router, audits.router, expiry.router, reports.router, settings.router):
+              notifications.router, audits.router, expiry.router, reports.router, settings.router, malware.router):
         app.include_router(r, prefix="/api/v1")
     return app
 

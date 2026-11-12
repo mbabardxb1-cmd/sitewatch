@@ -30,7 +30,8 @@ class AuditRun(UUIDPk, Timestamps, Base):
     )
     website_id: Mapped[uuid.UUID] = mapped_column(fk("websites.id"))
     period: Mapped[str | None] = mapped_column(String(7))  # YYYY-MM
-    trigger: Mapped[str] = mapped_column(str_enum("scheduled", "manual", name="audit_trigger"))
+    # scheduled = monthly audit, manual = started by a person, auto = automatic daily malware scan
+    trigger: Mapped[str] = mapped_column(str_enum("scheduled", "manual", "auto", name="audit_trigger"))
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(fk("users.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(str_enum(*AUDIT_STATUS, name="audit_status"), default="queued")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

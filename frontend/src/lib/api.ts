@@ -288,7 +288,7 @@ export type AuditRun = {
   id: string;
   website_id: string;
   website_name: string;
-  trigger: "scheduled" | "manual";
+  trigger: "scheduled" | "manual" | "auto";
   period: string | null;
   status: "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
   created_at: string;

@@ -70,7 +70,7 @@ export default function AuditDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link href="/audits" className="text-sm font-medium text-brand-600 hover:text-brand-500">← Technical Audits</Link>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{run.website_name}: {auditKind(run.categories)}{run.trigger === "scheduled" ? ` (automatic, ${run.period})` : ""}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{run.website_name}: {auditKind(run.categories)}{run.trigger === "scheduled" ? ` (automatic, ${run.period})` : run.trigger === "auto" ? " (automatic daily scan)" : ""}</h1>
           <p className="text-sm text-slate-600">
             <RunStatus run={run} /> · started {fmtDate(run.started_at, "—")} · finished {fmtDate(run.finished_at, "—")}
             {s.duration_s !== undefined && ` · ${s.duration_s}s, ${s.requests} requests`}

@@ -3,6 +3,7 @@
 import { Settings } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BrandingCard } from "@/components/BrandingCard";
+import { MalwareSettingsCard } from "@/components/MalwareSettingsCard";
 import { Button, Card, ErrorNote, Field, inputClass, PageHeader } from "@/components/ui";
 import { api, fmtDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -80,6 +81,7 @@ export default function SettingsPage() {
       )}
 
       <BrandingCard />
+      <MalwareSettingsCard />
 
       <Card title="Security log" actions={
         <select className="rounded-lg border-0 py-1.5 pl-2.5 pr-8 text-sm shadow-sm ring-1 ring-inset ring-slate-300" aria-label="Filter actions" value={filter} onChange={(e) => setFilter(e.target.value)}>

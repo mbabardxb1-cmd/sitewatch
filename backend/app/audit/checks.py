@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 from app.audit.crawler import CrawlResult, FetchOutcome, site_key
+from app.audit.malware import MALWARE_CHECKS, evaluate_malware
 from app.netsafe.tls import CertInfo
 
 CHECKS: dict[str, str] = {
@@ -43,6 +44,7 @@ CHECKS: dict[str, str] = {
     "form_labels": "Form fields without labels",
     "missing_viewport": "Mobile viewport configuration",
     "missing_lang": "Page language declaration",
+    **MALWARE_CHECKS,
 }
 
 # Audit categories a person can choose from when starting an audit. Every check belongs to one.
@@ -66,6 +68,9 @@ CATEGORIES: dict[str, dict] = {
     "forms": {"label": "Forms",
               "description": "Form targets, secure submission and spam protection. Forms are never submitted.",
               "checks": ["form_security", "form_action", "form_spam_protection"]},
+    "malware": {"label": "Malware & blacklist",
+                "description": "Injected code, crypto-miners, card skimmers, spam, hidden iframes, cloaking and blacklists.",
+                "checks": list(MALWARE_CHECKS)},
     "mobile": {"label": "Mobile & accessibility",
                "description": "Viewport for mobile devices, page language and labelled form fields.",
                "checks": ["missing_viewport", "missing_lang", "form_labels"]},
@@ -120,7 +125,8 @@ def _sources(cr: CrawlResult, url: str) -> list[str]:
 
 
 def evaluate(cr: CrawlResult, config: dict, cert: CertInfo | None, cert_error: str | None,
-             is_https: bool, now: datetime | None = None, categories: set[str] | None = None) -> AuditOutcome:
+             is_https: bool, now: datetime | None = None, categories: set[str] | None = None,
+             blacklist: dict | None = None, previous_script_hosts: list[str] | None = None) -> AuditOutcome:
     now = now or datetime.now(UTC)
     F: list[Finding] = []
     cov: dict[str, dict] = {}
@@ -383,6 +389,13 @@ def evaluate(cr: CrawlResult, config: dict, cert: CertInfo | None, cert_error: s
         covered("ssl_certificate", "performed", None, **info)
 
     _extra_checks(cr, html_pages, homepage, is_https, F, covered, verified)
+    malware_stats = {}
+    if crawled and (categories is None or "malware" in categories):
+        malware_stats = evaluate_malware(cr, html_pages, cr.base_url, Finding, F, covered, verified,
+                                         blacklist, previous_script_hosts)
+    elif not crawled:
+        for key in MALWARE_CHECKS:
+            covered(key, "not_checked", "The site could not be crawled")
 
     covered("javascript_rendering", "not_checked",
             "JavaScript rendering is not available in this version; content added by scripts was not audited"
@@ -418,6 +431,7 @@ def evaluate(cr: CrawlResult, config: dict, cert: CertInfo | None, cert_error: s
         "robots_blocked": len(cr.robots_blocked),
         "excluded": len(cr.excluded),
         "stopped_reason": cr.stopped_reason,
+        **({"malware": malware_stats} if malware_stats else {}),
     }
     return AuditOutcome(findings=capped, coverage=cov, stats=stats, verified_subjects=dict(verified))
 

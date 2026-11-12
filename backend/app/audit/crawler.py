@@ -46,10 +46,11 @@ KEPT_HEADERS = ("x-robots-tag", "strict-transport-security", "x-content-type-opt
                 "content-security-policy", "referrer-policy")
 
 # Weight (percent of total) of each phase, used for the progress indicator.
-PHASES = [("robots", "Reading robots.txt and sitemaps", 5), ("pages", "Crawling pages", 60),
+PHASES = [("robots", "Reading robots.txt and sitemaps", 5), ("pages", "Crawling pages", 55),
           ("unvisited", "Checking deeper links", 5), ("external", "Checking external links", 12),
-          ("images", "Checking images", 10), ("sitemap", "Checking sitemap URLs", 4),
-          ("forms", "Checking forms", 2), ("important", "Checking important pages", 2)]
+          ("images", "Checking images", 7), ("sitemap", "Checking sitemap URLs", 4),
+          ("forms", "Checking forms", 2), ("malware", "Scanning for malware", 8),
+          ("important", "Checking important pages", 2)]
 EXTERNAL_HOST_INTERVAL_S = 1.0
 
 
@@ -103,6 +104,10 @@ class CrawlResult:
     sitemap_checks: dict[str, FetchOutcome] = field(default_factory=dict)
     important: dict[str, FetchOutcome] = field(default_factory=dict)
     form_actions: dict[str, FetchOutcome] = field(default_factory=dict)
+    scripts: dict[str, FetchOutcome] = field(default_factory=dict)  # JS files downloaded for the malware scan
+    script_sources: dict[str, set[str]] = field(default_factory=dict)
+    scripts_skipped: int = 0
+    cloak: dict[str, FetchOutcome] = field(default_factory=dict)  # homepage as Googlebot / visitor from Google
     requests_made: int = 0
     duration_s: float = 0.0
 
@@ -197,12 +202,12 @@ class Crawler:
                 self._sleep(wait)
         self._last_request[k] = self._now()
 
-    def fetch(self, url: str, read_body: int = 0, method: str = "GET") -> FetchOutcome:
+    def fetch(self, url: str, read_body: int = 0, method: str = "GET", headers: dict | None = None) -> FetchOutcome:
         self._throttle(url)
         self.result.requests_made += 1
         out = FetchOutcome(url=url)
         try:
-            r = safe_fetch(self.client, url, method=method, read_body_bytes=read_body)
+            r = safe_fetch(self.client, url, method=method, read_body_bytes=read_body, headers=headers)
         except (BlockedTargetError, UnsafeUrlError) as e:
             out.error_type, out.error_detail = "blocked", str(e)[:500]
         except DnsResolutionError as e:
@@ -384,6 +389,34 @@ class Crawler:
             page = self.result.pages.get(url)
             self.result.form_actions[url] = page.fetch if page else self.check_link(url)
 
+    def scan_for_malware(self) -> None:
+        """Download the JavaScript files pages load, and fetch the homepage as Googlebot and as a
+        visitor arriving from Google search (to detect cloaking). Nothing is executed."""
+        from app.audit.malware import GOOGLEBOT_UA, MAX_EXTERNAL_SCRIPTS, MAX_INTERNAL_SCRIPTS, MAX_SCRIPT_BYTES, MOBILE_UA
+
+        for page in self.result.pages.values():
+            if page.facts is not None:
+                for src in page.facts.scripts:
+                    if urlsplit(src).scheme in ("http", "https"):
+                        self.result.script_sources.setdefault(src, set()).add(page.url)
+        internal = [u for u in sorted(self.result.script_sources) if self.is_internal(u)]
+        external = [u for u in sorted(self.result.script_sources) if not self.is_internal(u)]
+        robots = self.result.robots
+        internal = [u for u in internal if not robots or robots.can_fetch(u)]
+        chosen = internal[:MAX_INTERNAL_SCRIPTS] + external[:MAX_EXTERNAL_SCRIPTS]
+        self.result.scripts_skipped = len(internal) + len(external) - len(chosen)
+        total = len(chosen) + 2
+        for i, url in enumerate(chosen):
+            self.progress(fraction=i / total)
+            self.result.scripts[url] = self.fetch(url, read_body=MAX_SCRIPT_BYTES)
+        self.progress(fraction=(total - 2) / total)
+        if robots and not robots.can_fetch(self.base_url):
+            return  # the owner does not allow crawling the homepage: no cloaking comparison
+        self.result.cloak["googlebot"] = self.fetch(self.base_url, read_body=MAX_HTML_BYTES, headers={"User-Agent": GOOGLEBOT_UA})
+        self.result.cloak["google-visitor"] = self.fetch(
+            self.base_url, read_body=MAX_HTML_BYTES,
+            headers={"User-Agent": MOBILE_UA, "Referer": "https://www.google.com/"})
+
     def check_important(self) -> None:
         for i, url in enumerate(self.important_urls):
             self.progress(fraction=i / len(self.important_urls))
@@ -415,6 +448,9 @@ class Crawler:
                 if self.wants("forms"):
                     self.progress("forms")
                     self.check_form_actions()
+                if self.wants("malware"):
+                    self.progress("malware")
+                    self.scan_for_malware()
                 if self.wants("links"):
                     self.progress("important")
                     self.check_important()
