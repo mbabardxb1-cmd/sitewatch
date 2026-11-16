@@ -302,3 +302,31 @@ def test_shared_hosting_friendly_defaults_and_bulk_interval(db, as_user, make_cl
     assert db.get(Website, fast.id).check_interval_s == 14400 and db.get(Website, fast.id).timeout_s == 30
     assert db.get(Website, archived.id).check_interval_s == 60  # archived sites are left alone
     assert as_user("developer").post("/api/v1/websites/bulk-monitoring", json={"check_interval_s": 14400}).status_code == 403
+
+
+def test_apply_recommended_settings_never_makes_checks_heavier(db, as_user, make_client, make_website):
+    from app.models import Website
+
+    admin = as_user("super_admin")
+    acme = make_client()
+    heavy = make_website(acme, "Heavy", "https://heavy.example.net/", check_interval_s=60, timeout_s=10,
+                         degraded_threshold_ms=2000, retry_attempts=5,
+                         crawl_config={"max_depth": 6, "max_pages": 2000, "timeout_s": 10, "rate_rps": 5.0,
+                                       "excluded_patterns": ["/shop/*"], "check_external_links": True,
+                                       "render_js": False, "slow_page_ms": 3000})
+    heavy.malware_auto_scan = True
+    light = make_website(acme, "Light", "https://light.example.net/", check_interval_s=86400,
+                         crawl_config={"max_depth": 2, "max_pages": 50, "timeout_s": 15, "rate_rps": 0.5,
+                                       "excluded_patterns": [], "check_external_links": False,
+                                       "render_js": False, "slow_page_ms": 3000})
+    db.commit()
+    r = admin.post("/api/v1/websites/apply-recommended")
+    assert r.status_code == 200 and r.json()["changed"] >= 2
+    db.expire_all()
+    h, l = db.get(Website, heavy.id), db.get(Website, light.id)
+    assert (h.check_interval_s, h.timeout_s, h.degraded_threshold_ms, h.retry_attempts, h.malware_auto_scan) == (14400, 30, 5000, 2, False)
+    assert h.crawl_config["rate_rps"] == 1.0 and h.crawl_config["max_pages"] == 200 and h.crawl_config["max_depth"] == 3
+    assert h.crawl_config["excluded_patterns"] == ["/shop/*"]  # unrelated settings are kept
+    # already lighter values are kept
+    assert l.check_interval_s == 86400 and l.crawl_config["rate_rps"] == 0.5 and l.crawl_config["max_pages"] == 50
+    assert admin.post("/api/v1/websites/apply-recommended").json()["changed"] == 0  # idempotent

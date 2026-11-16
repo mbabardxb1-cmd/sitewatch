@@ -26,7 +26,7 @@ export const DEFAULT_MONITORING: MonitoringValues = {
   retry_attempts: 2,
   recovery_threshold: 1,
   timeout_s: 30,
-  degraded_threshold_ms: 3000,
+  degraded_threshold_ms: 5000,
   expected_status_codes: [200],
   audit_day_of_month: 1,
   auto_audit: true,

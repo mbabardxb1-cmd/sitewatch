@@ -97,7 +97,7 @@ class MonitoringSettings(BaseModel):
     retry_attempts: int = Field(default=2, ge=0, le=10)
     recovery_threshold: int = Field(default=1, ge=1, le=10)
     timeout_s: int = Field(default=30, ge=2, le=60)
-    degraded_threshold_ms: int = Field(default=3000, ge=100, le=60000)
+    degraded_threshold_ms: int = Field(default=5000, ge=100, le=60000)
     expected_status_codes: list[int] = Field(default_factory=lambda: [200], min_length=1, max_length=20)
     audit_day_of_month: int = Field(default=1, ge=1, le=28)
     auto_audit: bool = True

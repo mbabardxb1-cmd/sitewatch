@@ -47,6 +47,16 @@ def bulk_monitoring(body: BulkMonitoringUpdate, request: Request, db: Session = 
     return {"updated": len(sites)}
 
 
+@router.post("/apply-recommended")
+def apply_recommended_settings(request: Request, db: Session = Depends(get_db),
+                               user: User = Depends(require("settings.manage"))):
+    """Apply the shared-hosting friendly settings to every website (never makes checks heavier)."""
+    n = svc.apply_recommended(db)
+    record(db, user.id, "website.apply_recommended", None, None, client_ip(request), changed=n)
+    db.commit()
+    return {"changed": n, "settings": svc.RECOMMENDED}
+
+
 @router.get("", response_model=list[WebsiteView])
 def list_websites(
     db: Session = Depends(get_db),

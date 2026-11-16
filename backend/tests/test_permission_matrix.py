@@ -95,6 +95,7 @@ ROUTES = {
     # websites
     ("GET", "/api/v1/websites"): (["website.read"], False, None),
     ("POST", "/api/v1/websites/bulk-monitoring"): (["settings.manage"], False, J({"check_interval_s": 14400})),
+    ("POST", "/api/v1/websites/apply-recommended"): (["settings.manage"], False, None),
     ("POST", "/api/v1/websites"): (["website.write"], False, J(lambda w: {
         "client_id": str(w["client_a"].id), "name": "New site", "base_url": f"https://new-{uuid.uuid4().hex[:6]}.example.net"})),
     ("GET", "/api/v1/websites/{website_id}"): (["website.read"], True, None),

@@ -64,7 +64,7 @@ class Website(UUIDPk, Timestamps, Base):
     retry_attempts: Mapped[int] = mapped_column(default=2)
     recovery_threshold: Mapped[int] = mapped_column(default=1)
     timeout_s: Mapped[int] = mapped_column(default=30)
-    degraded_threshold_ms: Mapped[int] = mapped_column(default=3000)
+    degraded_threshold_ms: Mapped[int] = mapped_column(default=5000)
     expected_status_codes: Mapped[list[int]] = mapped_column(ARRAY(sa.Integer), default=lambda: [200])
     next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     current_state: Mapped[str] = mapped_column(str_enum(*WEBSITE_STATE, name="website_state"), default="unknown")

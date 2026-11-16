@@ -156,3 +156,44 @@ def set_assignments(db: Session, site: Website, user_ids) -> None:
         if CLIENT in u.role_keys and u.client_id != site.client_id:
             raise HTTPException(422, f"{u.email} belongs to a different client organization.")
     site.assigned_users = users
+
+
+# ---- Recommended settings for shared hosting ---------------------------------------------------
+# Light on clients' hosting: uptime every 4 hours, patient timeouts, gentle crawls, no daily malware
+# scan. Applying them never makes a website's checks heavier than they already are.
+RECOMMENDED = {
+    "check_interval_s": 4 * 3600,  # at least this long between checks
+    "timeout_s": 30,
+    "degraded_threshold_ms": 5000,  # at least this
+    "retry_attempts": 2,  # at most this
+    "recovery_threshold": 1,
+    "crawl": {"rate_rps": 1.0, "max_pages": 200, "max_depth": 3, "timeout_s": 30, "render_js": False},
+}
+
+
+def apply_recommended(db: Session, now: datetime | None = None) -> int:
+    """Apply RECOMMENDED to every non-archived website. Returns how many websites changed."""
+    r = RECOMMENDED
+    changed = 0
+    for w in db.scalars(select(Website).where(Website.status != "archived")):
+        before = (w.check_interval_s, w.timeout_s, w.degraded_threshold_ms, w.retry_attempts, w.recovery_threshold,
+                  dict(w.crawl_config or {}), w.malware_auto_scan)
+        w.check_interval_s = max(w.check_interval_s, r["check_interval_s"])
+        w.timeout_s = r["timeout_s"]
+        w.degraded_threshold_ms = max(w.degraded_threshold_ms, r["degraded_threshold_ms"])
+        w.retry_attempts = min(w.retry_attempts, r["retry_attempts"])
+        w.recovery_threshold = r["recovery_threshold"]
+        w.malware_auto_scan = False
+        c, rc = dict(w.crawl_config or {}), r["crawl"]
+        c["rate_rps"] = min(float(c.get("rate_rps", rc["rate_rps"])), rc["rate_rps"])
+        c["max_pages"] = min(int(c.get("max_pages", rc["max_pages"])), rc["max_pages"])
+        c["max_depth"] = min(int(c.get("max_depth", rc["max_depth"])), rc["max_depth"])
+        c["timeout_s"] = rc["timeout_s"]
+        c["render_js"] = False
+        w.crawl_config = c
+        after = (w.check_interval_s, w.timeout_s, w.degraded_threshold_ms, w.retry_attempts, w.recovery_threshold,
+                 dict(w.crawl_config), w.malware_auto_scan)
+        if after != before:
+            changed += 1
+    db.flush()
+    return changed
