@@ -54,9 +54,9 @@ class ClientOut(BaseModel):
 class CrawlConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     max_depth: int = Field(default=3, ge=0, le=10)
-    max_pages: int = Field(default=500, ge=1, le=10000)
-    timeout_s: int = Field(default=15, ge=1, le=60)
-    rate_rps: float = Field(default=2.0, ge=0.1, le=10.0, description="Max requests per second to the site")
+    max_pages: int = Field(default=200, ge=1, le=10000)
+    timeout_s: int = Field(default=30, ge=1, le=60)
+    rate_rps: float = Field(default=1.0, ge=0.1, le=10.0, description="Max requests per second to the site")
     excluded_patterns: list[str] = Field(default_factory=list, max_length=100,
                                          description="Glob patterns (e.g. /wp-admin/*) or 're:' regex")
     check_external_links: bool = True
@@ -93,10 +93,10 @@ def _check_codes(v: list[int] | None) -> list[int] | None:
 
 
 class MonitoringSettings(BaseModel):
-    check_interval_s: int = Field(default=300, ge=60, le=86400, description="1 minute to 24 hours")
+    check_interval_s: int = Field(default=14400, ge=60, le=86400, description="1 minute to 24 hours; default 4 hours")
     retry_attempts: int = Field(default=2, ge=0, le=10)
     recovery_threshold: int = Field(default=1, ge=1, le=10)
-    timeout_s: int = Field(default=15, ge=2, le=60)
+    timeout_s: int = Field(default=30, ge=2, le=60)
     degraded_threshold_ms: int = Field(default=3000, ge=100, le=60000)
     expected_status_codes: list[int] = Field(default_factory=lambda: [200], min_length=1, max_length=20)
     audit_day_of_month: int = Field(default=1, ge=1, le=28)
@@ -179,3 +179,9 @@ class WebsiteStaffView(WebsiteClientView):
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class BulkMonitoringUpdate(BaseModel):
+    """Apply uptime-check settings to every (non-archived) website at once."""
+    check_interval_s: int = Field(ge=60, le=86400)
+    timeout_s: int | None = Field(default=None, ge=2, le=60)

@@ -67,7 +67,7 @@ export default function NewWebsitePage() {
           <MonitoringFields v={values} set={setValues} />
         </Card>
         <p className="text-xs text-slate-500">
-          Crawl settings start with safe defaults (depth 3, 500 pages, 2 requests/second) and can be changed after saving.
+          Crawl settings start with safe defaults (depth 3, 200 pages, 1 request per second, gentle on shared hosting) and can be changed after saving.
         </p>
         <Button type="submit" disabled={busy || !clientId}>{busy ? "Saving…" : "Add website"}</Button>
       </form>

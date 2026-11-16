@@ -13,9 +13,9 @@ WEBSITE_STATE = ("up", "down", "degraded", "unknown")
 
 DEFAULT_CRAWL_CONFIG = {
     "max_depth": 3,
-    "max_pages": 500,
-    "timeout_s": 15,
-    "rate_rps": 2.0,
+    "max_pages": 200,
+    "timeout_s": 30,
+    "rate_rps": 1.0,  # gentle on shared hosting
     "excluded_patterns": [],
     "check_external_links": True,
     "render_js": False,
@@ -60,10 +60,10 @@ class Website(UUIDPk, Timestamps, Base):
     status: Mapped[str] = mapped_column(str_enum(*WEBSITE_STATUS, name="website_status"), default="active")
 
     # Uptime configuration
-    check_interval_s: Mapped[int] = mapped_column(default=300)
+    check_interval_s: Mapped[int] = mapped_column(default=14400)  # 4 hours
     retry_attempts: Mapped[int] = mapped_column(default=2)
     recovery_threshold: Mapped[int] = mapped_column(default=1)
-    timeout_s: Mapped[int] = mapped_column(default=15)
+    timeout_s: Mapped[int] = mapped_column(default=30)
     degraded_threshold_ms: Mapped[int] = mapped_column(default=3000)
     expected_status_codes: Mapped[list[int]] = mapped_column(ARRAY(sa.Integer), default=lambda: [200])
     next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

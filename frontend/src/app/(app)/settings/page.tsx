@@ -3,6 +3,7 @@
 import { Settings } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BrandingCard } from "@/components/BrandingCard";
+import { BulkMonitoringCard } from "@/components/BulkMonitoringCard";
 import { MalwareSettingsCard } from "@/components/MalwareSettingsCard";
 import { Button, Card, ErrorNote, Field, inputClass, PageHeader } from "@/components/ui";
 import { api, fmtDate } from "@/lib/api";
@@ -80,6 +81,7 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      <BulkMonitoringCard />
       <BrandingCard />
       <MalwareSettingsCard />
 

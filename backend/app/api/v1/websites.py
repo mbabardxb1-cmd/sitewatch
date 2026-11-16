@@ -12,6 +12,7 @@ from app.db import get_db
 from app.models import User, Website
 from app.schemas.websites import (
     AssignmentsUpdate,
+    BulkMonitoringUpdate,
     CrawlConfig,
     WebsiteClientView,
     WebsiteCreate,
@@ -23,6 +24,27 @@ from app.services.audit_log import record
 
 router = APIRouter(prefix="/websites", tags=["websites"])
 WebsiteView = WebsiteStaffView | WebsiteClientView
+
+
+@router.post("/bulk-monitoring")
+def bulk_monitoring(body: BulkMonitoringUpdate, request: Request, db: Session = Depends(get_db),
+                    user: User = Depends(require("settings.manage"))):
+    """Set the uptime check interval (and optionally the timeout) of every non-archived website."""
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    sites = list(db.scalars(select(Website).where(Website.status != "archived")))
+    for w in sites:
+        w.check_interval_s = body.check_interval_s
+        if body.timeout_s is not None:
+            w.timeout_s = body.timeout_s
+        soonest = now + timedelta(seconds=body.check_interval_s)
+        if w.next_check_at is not None and w.next_check_at > soonest:
+            w.next_check_at = soonest  # a shorter interval takes effect right away
+    record(db, user.id, "website.bulk_monitoring", None, None, client_ip(request), count=len(sites),
+           **body.model_dump(exclude_none=True))
+    db.commit()
+    return {"updated": len(sites)}
 
 
 @router.get("", response_model=list[WebsiteView])

@@ -49,7 +49,7 @@ def test_developer_registers_website_and_is_auto_assigned(as_user, make_client, 
     assert body["health"] == "unknown" and body["health_reason"] == "No completed checks yet"
     assert body["next_check_at"] is not None  # will be picked up by the scheduler in phase 3
     assert [u["email"] for u in body["assigned_users"]] == [dev.user.email]
-    assert body["crawl_config"]["max_pages"] == 500
+    assert body["crawl_config"]["max_pages"] == 200
     assert dev.get(f"/api/v1/websites/{body['id']}").status_code == 200
     assert db.scalar(select(AuditLog).where(AuditLog.action == "website.create")) is not None
 
@@ -281,3 +281,24 @@ def test_deactivating_client_locks_out_its_users(as_user, make_client):
     assert cu.get("/api/v1/auth/me").status_code == 401
     assert cu.get("/api/v1/websites").status_code == 401
     assert cu.login(cu.user.email).status_code == 401
+
+
+def test_shared_hosting_friendly_defaults_and_bulk_interval(db, as_user, make_client, make_website):
+    from app.models import Website
+
+    admin = as_user("super_admin")
+    acme = make_client()
+    r = admin.post("/api/v1/websites", json={"client_id": str(acme.id), "name": "New", "base_url": "https://new-default.example.net"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["check_interval_s"] == 4 * 3600 and body["timeout_s"] == 30
+    assert body["crawl_config"]["rate_rps"] == 1.0 and body["crawl_config"]["max_pages"] == 200
+
+    fast = make_website(acme, "Fast", "https://fast.example.net/", check_interval_s=60)
+    archived = make_website(acme, "Old", "https://old.example.net/", check_interval_s=60, status="archived")
+    r = admin.post("/api/v1/websites/bulk-monitoring", json={"check_interval_s": 14400, "timeout_s": 30})
+    assert r.status_code == 200 and r.json()["updated"] >= 2
+    db.expire_all()
+    assert db.get(Website, fast.id).check_interval_s == 14400 and db.get(Website, fast.id).timeout_s == 30
+    assert db.get(Website, archived.id).check_interval_s == 60  # archived sites are left alone
+    assert as_user("developer").post("/api/v1/websites/bulk-monitoring", json={"check_interval_s": 14400}).status_code == 403

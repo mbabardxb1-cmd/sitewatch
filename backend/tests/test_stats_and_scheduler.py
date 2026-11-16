@@ -125,7 +125,7 @@ def test_dispatcher_claims_only_due_active_sites(db, make_client, make_website):
     # lease pushed forward: a second pass claims nothing
     assert tasks.claim_due_websites(db, now=now) == []
     db.expire_all()
-    assert db.get(Website, due.id).next_check_at == now + timedelta(seconds=300)
+    assert db.get(Website, due.id).next_check_at == now + timedelta(seconds=db.get(Website, due.id).check_interval_s)
 
 
 def test_concurrent_dispatchers_never_double_claim(db, make_client, make_website):

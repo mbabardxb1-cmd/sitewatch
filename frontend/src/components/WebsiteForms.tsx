@@ -22,10 +22,10 @@ export type MonitoringValues = {
 export const DEFAULT_MONITORING: MonitoringValues = {
   name: "",
   base_url: "",
-  check_interval_s: 300,
+  check_interval_s: 14400, // 4 hours: gentle on shared hosting
   retry_attempts: 2,
   recovery_threshold: 1,
-  timeout_s: 15,
+  timeout_s: 30,
   degraded_threshold_ms: 3000,
   expected_status_codes: [200],
   audit_day_of_month: 1,
@@ -35,8 +35,8 @@ export const DEFAULT_MONITORING: MonitoringValues = {
 };
 
 // Snap points for the check interval (seconds). The server accepts 1 minute to 24 hours.
-const INTERVAL_STOPS = [60, 120, 180, 240, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
-const INTERVAL_LABELS: Record<number, string> = { 60: "1m", 300: "5m", 900: "15m", 3600: "1h", 21600: "6h", 86400: "24h" };
+const INTERVAL_STOPS = [60, 120, 180, 240, 300, 600, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400];
+const INTERVAL_LABELS: Record<number, string> = { 60: "1m", 300: "5m", 900: "15m", 3600: "1h", 14400: "4h", 86400: "24h" };
 
 function nearestStop(seconds: number): number {
   let best = 0;
@@ -44,7 +44,7 @@ function nearestStop(seconds: number): number {
   return best;
 }
 
-function IntervalSlider({ value, onChange }: { value: number; onChange: (seconds: number) => void }) {
+export function IntervalSlider({ value, onChange }: { value: number; onChange: (seconds: number) => void }) {
   const idx = nearestStop(value);
   const last = INTERVAL_STOPS.length - 1;
   // Thumb is 20px wide: its centre travels from 10px to (100% - 10px).
@@ -71,9 +71,10 @@ function IntervalSlider({ value, onChange }: { value: number; onChange: (seconds
         ))}
       </div>
       <p className="text-xs text-slate-500">
-        {value <= 300
-          ? "Recommended for important websites. Failed checks are retried after 30 seconds before an outage is confirmed."
-          : `An outage could go unnoticed for up to ${fmtInterval(value).replace("every ", "")}. Use 5 minutes or less for websites that matter.`}
+        {value < 3600
+          ? "Detects outages within minutes, but loads the website most often. On shared hosting, 1 to 4 hours is gentler."
+          : `Gentle on shared hosting (${Math.round(86400 / value)} check${86400 / value === 1 ? "" : "s"} a day). `
+            + `An outage could go unnoticed for up to ${fmtInterval(value).replace("every ", "")}.`}
       </p>
     </div>
   );
