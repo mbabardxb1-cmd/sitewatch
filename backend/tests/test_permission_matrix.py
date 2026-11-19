@@ -116,6 +116,8 @@ ROUTES = {
     ("GET", "/api/v1/incidents"): (["incident.read"], False, None),
     ("GET", "/api/v1/incidents/{incident_id}"): (["incident.read"], True, None),
     ("POST", "/api/v1/incidents/{incident_id}/acknowledge"): (["incident.manage"], True, None),
+    ("POST", "/api/v1/incidents/{incident_id}/resolve"): (["incident.manage"], True, J({})),
+    ("PUT", "/api/v1/incidents/{incident_id}/report"): (["report.approve"], True, J({"include_in_report": True})),
     # notifications
     ("GET", "/api/v1/notification-events"): (["notification.read"], False, None),
     ("GET", "/api/v1/notification-logs"): (["notification.read"], False, None),

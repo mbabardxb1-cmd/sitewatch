@@ -235,6 +235,11 @@ export type Incident = {
   cause_summary?: string;
   acknowledged_by_email?: string | null;
   acknowledged_at?: string | null;
+  resolution?: "auto" | "manual" | null;
+  resolved_by_email?: string | null;
+  resolution_note?: string | null;
+  include_in_report?: boolean;
+  website_status?: string | null;
 };
 
 export type NotificationRule = {

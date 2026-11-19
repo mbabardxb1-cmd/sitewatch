@@ -376,6 +376,9 @@ def render_pdf(snap: dict, logo_path: str | None = None) -> bytes:
     ], [CONTENT_W * 0.4, CONTENT_W * 0.3, CONTENT_W * 0.3], s, bold_col=0))
     story.append(Paragraph("Uptime is time-weighted from recorded checks; time without checks is excluded, never counted "
                            "as available.", s.small))
+    if up.get("excluded_incidents"):
+        story.append(Paragraph(f"{up['excluded_incidents']} incident(s) in this period were excluded by an administrator "
+                               "(e.g. false alarms) and are not counted above.", s.small))
     if r["avg_ms"] is None:
         story.append(Paragraph("No successful checks were recorded, so response times cannot be reported.", s.body))
     else:

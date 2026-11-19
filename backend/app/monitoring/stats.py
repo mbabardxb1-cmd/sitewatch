@@ -63,6 +63,7 @@ SELECT website_id,
        COUNT(*) AS n
 FROM uptime_incidents
 WHERE website_id = ANY(:ids) AND started_at < :end AND COALESCE(ended_at, CAST(:now AS timestamptz)) > :start
+  AND include_in_report
 GROUP BY website_id
 """)
 

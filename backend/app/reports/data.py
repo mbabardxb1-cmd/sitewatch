@@ -158,9 +158,11 @@ def build_snapshot(db: Session, site: Website, period: str, kind: str, now: date
     # ---- uptime -------------------------------------------------------------------------
     up = uptime_for_sites(db, [site.id], start, end, now=now)[site.id]
     up_prev = uptime_for_sites(db, [site.id], pstart, pend, now=now)[site.id]
-    incidents = list(db.scalars(select(UptimeIncident).where(
+    all_incidents = list(db.scalars(select(UptimeIncident).where(
         UptimeIncident.website_id == site.id, UptimeIncident.started_at < end,
         func.coalesce(UptimeIncident.ended_at, now) > start).order_by(UptimeIncident.started_at)))
+    incidents = [i for i in all_incidents if i.include_in_report]
+    excluded_incidents = len(all_incidents) - len(incidents)
     inc_rows = []
     for i in incidents:
         row = {"started_at": _iso(i.started_at), "ended_at": _iso(i.ended_at),
@@ -168,6 +170,8 @@ def build_snapshot(db: Session, site: Website, period: str, kind: str, now: date
                "ongoing": i.ended_at is None}
         if technical:
             row["cause"] = i.cause_summary
+            if i.resolution == "manual":
+                row["cause"] += " (closed manually" + (f": {i.resolution_note}" if i.resolution_note else "") + ")"
         inc_rows.append(row)
 
     resp = _response(db, site.id, start, end)
@@ -251,6 +255,7 @@ def build_snapshot(db: Session, site: Website, period: str, kind: str, now: date
         "website": {"name": site.name, "url": site.base_url, "client": client.name if client else ""},
         "branding": branding or {},
         "uptime": {**{k: _iso(v) for k, v in up.as_dict().items()}, "incidents": inc_rows,
+                   **({"excluded_incidents": excluded_incidents} if technical else {}),
                    "previous": {"uptime_pct": up_prev.uptime_pct, "downtime_s": up_prev.downtime_s,
                                 "incidents": up_prev.incidents, "coverage_pct": up_prev.coverage_pct}},
         "response": {**resp, "previous_avg_ms": resp_prev["avg_ms"]},

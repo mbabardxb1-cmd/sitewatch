@@ -148,6 +148,7 @@ def _close_incident(db: Session, site: Website, check: UptimeCheck, at: datetime
     inc.ended_at = at
     inc.duration_s = int((at - inc.started_at).total_seconds())
     inc.status = "resolved"
+    inc.resolution = "auto"
     inc.last_check_id = check.id
     out.closed_incident = inc
     subject, body = compose("website_recovered", site, [
@@ -175,3 +176,24 @@ def _maybe_server_error_alert(db: Session, site: Website, at: datetime, out: Out
         ])
         _push(out, queue_notification(db, event_type="repeated_server_errors", website=site,
                                       dedup_key=f"5xx:{site.id}:{bucket}", subject=subject, body=body))
+
+
+def resolve_manually(db: Session, site: Website, inc: UptimeIncident, user_id, at: datetime, note: str | None,
+                     include_in_report: bool, pause_monitoring: bool) -> None:
+    """A person closes an incident. The website's failure state is reset so the next check starts
+    fresh: if the website is still failing, the normal retries run and a NEW incident is opened."""
+    inc.ended_at = at
+    inc.duration_s = int((at - inc.started_at).total_seconds())
+    inc.status = "resolved"
+    inc.resolution = "manual"
+    inc.resolved_by = user_id
+    inc.resolution_note = (note or "").strip()[:2000] or None
+    inc.include_in_report = include_in_report
+    if not include_in_report:
+        inc.excluded_by = user_id
+    site.current_state = "unknown"
+    site.consecutive_failures = 0
+    site.consecutive_successes = 0
+    site.failure_streak_started_at = None
+    if pause_monitoring:
+        site.status = "paused"

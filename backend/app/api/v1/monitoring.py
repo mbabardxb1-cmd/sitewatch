@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -83,6 +83,21 @@ class IncidentStaffView(IncidentClientView):
     last_check_id: int | None
     acknowledged_by_email: str | None
     acknowledged_at: datetime | None
+    resolution: str | None = None
+    resolved_by_email: str | None = None
+    resolution_note: str | None = None
+    include_in_report: bool = True
+    website_status: str | None = None
+
+
+class ResolveIn(BaseModel):
+    note: str | None = Field(default=None, max_length=2000)
+    include_in_report: bool = True
+    pause_monitoring: bool = False
+
+
+class IncidentReportIn(BaseModel):
+    include_in_report: bool
 
 
 def _summary(db: Session, site_id: uuid.UUID) -> UptimeSummary:
@@ -170,9 +185,12 @@ def _incident_view(inc: UptimeIncident, site: Website, user: User, db: Session):
     if is_client_user(user):
         return IncidentClientView(**base)
     ack = db.get(User, inc.acknowledged_by) if inc.acknowledged_by else None
+    res = db.get(User, inc.resolved_by) if inc.resolved_by else None
     return IncidentStaffView(**base, cause_summary=inc.cause_summary, first_check_id=inc.first_check_id,
                              last_check_id=inc.last_check_id, acknowledged_by_email=ack.email if ack else None,
-                             acknowledged_at=inc.acknowledged_at)
+                             acknowledged_at=inc.acknowledged_at, resolution=inc.resolution,
+                             resolved_by_email=res.email if res else None, resolution_note=inc.resolution_note,
+                             include_in_report=inc.include_in_report, website_status=site.status)
 
 
 @router.get("/incidents", response_model=list[IncidentStaffView | IncidentClientView])
@@ -187,6 +205,8 @@ def list_incidents(state: Literal["open", "resolved", "all"] = "all", website_id
         q = q.where(UptimeIncident.ended_at.is_not(None))
     if website_id:
         q = q.where(UptimeIncident.website_id == website_id)
+    if is_client_user(user):  # incidents excluded by the team are not shown to clients
+        q = q.where(UptimeIncident.include_in_report.is_(True))
     rows = db.execute(q.order_by(UptimeIncident.ended_at.is_(None).desc(), UptimeIncident.started_at.desc())
                       .limit(limit)).unique().all()
     return [_incident_view(inc, site, user, db) for inc, site in rows]
@@ -216,5 +236,39 @@ def acknowledge_incident(incident_id: uuid.UUID, request: Request, db: Session =
     inc.acknowledged_by = user.id
     inc.acknowledged_at = datetime.now(UTC)
     record(db, user.id, "incident.acknowledge", "incident", inc.id, client_ip(request))
+    db.commit()
+    return _incident_view(inc, site, user, db)
+
+
+@router.post("/incidents/{incident_id}/resolve", response_model=IncidentStaffView)
+def resolve_incident(incident_id: uuid.UUID, body: ResolveIn, request: Request, db: Session = Depends(get_db),
+                     user: User = Depends(require("incident.manage"))):
+    """Close an incident by hand. Excluding it from reports needs the report-approval permission."""
+    from app.monitoring.engine import resolve_manually
+
+    inc, site = _get_incident(db, user, incident_id)
+    if inc.ended_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Incident is already resolved.")
+    if not body.include_in_report and "report.approve" not in user.permission_keys:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only administrators can exclude incidents from reports.")
+    # lock the website row so a check running at the same moment cannot interleave
+    db.execute(select(Website.id).where(Website.id == site.id).with_for_update())
+    db.refresh(site)
+    resolve_manually(db, site, inc, user.id, datetime.now(UTC), body.note, body.include_in_report, body.pause_monitoring)
+    record(db, user.id, "incident.resolve", "incident", inc.id, client_ip(request),
+           include_in_report=body.include_in_report, paused=body.pause_monitoring)
+    db.commit()
+    return _incident_view(inc, site, user, db)
+
+
+@router.put("/incidents/{incident_id}/report", response_model=IncidentStaffView)
+def set_incident_in_report(incident_id: uuid.UUID, body: IncidentReportIn, request: Request,
+                           db: Session = Depends(get_db), user: User = Depends(require("report.approve"))):
+    """Administrator's choice: count this incident in uptime figures and reports, or not."""
+    inc, site = _get_incident(db, user, incident_id)
+    inc.include_in_report = body.include_in_report
+    inc.excluded_by = None if body.include_in_report else user.id
+    record(db, user.id, "incident.report_inclusion", "incident", inc.id, client_ip(request),
+           include_in_report=body.include_in_report)
     db.commit()
     return _incident_view(inc, site, user, db)

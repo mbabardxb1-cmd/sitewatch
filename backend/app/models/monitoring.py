@@ -52,6 +52,14 @@ class UptimeIncident(UUIDPk, Timestamps, Base):
     last_check_id: Mapped[int | None] = mapped_column(BigInteger)
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(fk("users.id", ondelete="SET NULL"))
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # How it ended: "auto" = a successful check confirmed recovery, "manual" = a person closed it.
+    resolution: Mapped[str | None] = mapped_column(String(20))
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(fk("users.id", ondelete="SET NULL"))
+    resolution_note: Mapped[str | None] = mapped_column(Text)
+    # Whether the incident counts as downtime in uptime figures and appears in reports.
+    # An administrator can exclude e.g. a false alarm (the site's firewall blocking the monitor).
+    include_in_report: Mapped[bool] = mapped_column(default=True, server_default=sa.true())
+    excluded_by: Mapped[uuid.UUID | None] = mapped_column(fk("users.id", ondelete="SET NULL"))
 
 
 class PerformanceMetric(Base):
